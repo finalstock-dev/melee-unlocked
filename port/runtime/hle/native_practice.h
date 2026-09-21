@@ -18,6 +18,7 @@ struct Snapshot {
   MatchMode mode = MatchMode::None;
   bool in_practice = false;
   bool tab_available = false;
+  bool can_start = false;
   bool cosmetic_profile_locked = false;
   int controller_port = 0;
   int matchmaking_state = 0;

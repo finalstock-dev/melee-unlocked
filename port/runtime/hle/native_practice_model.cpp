@@ -149,6 +149,12 @@ bool phase_owns_online_mode(Phase phase) {
   return phase == Phase::Handoff;
 }
 
+bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bool session_active) {
+  if (playback || online_match) return false;
+  if (phase == Phase::Searching) return true;
+  return phase == Phase::Idle && !session_active;
+}
+
 const char* phase_name(Phase phase) {
   switch (phase) {
     case Phase::Idle: return "Idle";

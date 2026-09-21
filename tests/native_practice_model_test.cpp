@@ -49,6 +49,11 @@ int main() {
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::OnlineFlow));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::InMatch));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Failure));
+  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, false));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, true, false, false));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, true, true));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, true));
+  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Searching, false, false, true));
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

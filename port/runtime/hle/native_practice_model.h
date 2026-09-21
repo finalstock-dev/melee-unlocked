@@ -66,6 +66,9 @@ bool phase_shows_return_overlay(Phase phase, bool in_practice);
 // enters that major scene without passing through the title-menu option that initializes it, so
 // the coordinator owns the byte only until the online scene has taken over.
 bool phase_owns_online_mode(Phase phase);
+// The popup is available throughout offline Melee. An active native search keeps it available so
+// the player can cancel, but replays and any pre-existing/playing online session own Tab instead.
+bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bool session_active);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice

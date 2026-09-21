@@ -60,6 +60,8 @@ int g_matchmaking_state = 0;
 uint32_t g_search_ticks = 0;
 uint32_t g_generation = 0;
 uint32_t g_return_ticks = 0;
+uint8_t g_origin_major = 1;
+bool g_restore_training = false;
 Phase g_logged_phase = Phase::Idle;
 
 bool is_training() { return host::rd8(kSceneState) == kTrainingMajor; }
@@ -139,13 +141,16 @@ void run_decision(const Decision& d) {
               match_mode_name(g_match_mode));
   }
   if (d.request_practice_return) {
-    write_event_backup();
-    // Seed the guest fields before Training's major-scene preparation reads them, then apply the
-    // same narrow set again once the Training match minor has settled.
-    restore_practice_fields();
-    request_major(kTrainingMajor);
+    if (g_restore_training) {
+      write_event_backup();
+      // Seed the guest fields before Training's major-scene preparation reads them, then apply the
+      // same narrow set again once the Training match minor has settled.
+      restore_practice_fields();
+    }
+    request_major(g_origin_major);
     g_return_ticks = 0;
-    host::log("native practice: returning to Training after pre-match disconnect");
+    host::log("native practice: returning to offline scene %02X after pre-match disconnect",
+              g_origin_major);
   }
 }
 
@@ -163,11 +168,22 @@ void clear_search_metadata() {
 
 void start_search(MatchMode mode, const std::string& connect_code) {
   if (g_lifecycle.phase() != Phase::Idle) return;
-  if (!is_training()) { fail("Start matchmaking from the Training scene", false); return; }
+  if (slippi::playback::enabled()) { fail("Matchmaking is unavailable during replay playback", false); return; }
+  if (is_online_scene()) { fail("Matchmaking is already using the online scene", false); return; }
   if (slippi::online::session_mode() >= 0) { fail("An online session is already active", false); return; }
 
+  g_origin_major = host::rd8(kSceneState);
+  g_restore_training = is_training();
   g_practice = capture_practice();
-  const SavedPlayer& player = g_practice.players[g_practice.local_slot];
+  SavedPlayer& player = g_practice.players[g_practice.local_slot];
+  // Menus do not always have an active player slot. Use Fox/color 0 as a safe CSS seed in that
+  // case; an active offline fighter or Training selection is carried across when available.
+  if (!player.active || player.character >= 26) {
+    player.character = 2;
+    player.costume = 0;
+    player.controller = 0;
+    g_practice.controller_port = 0;
+  }
   g_match_mode = mode;
   g_connect_code = connect_code;
   g_opponent.clear();
@@ -184,9 +200,9 @@ void start_search(MatchMode mode, const std::string& connect_code) {
     return;
   }
   ++g_generation;
-  host::log("native practice: %s search started%s%s (Training port %d)",
+  host::log("native practice: %s search started%s%s (offline scene %02X, port %d)",
             match_mode_name(mode), connect_code.empty() ? "" : " for ", connect_code.c_str(),
-            g_practice.controller_port + 1);
+            g_origin_major, g_practice.controller_port + 1);
 }
 
 void process_command(Command command) {
@@ -227,8 +243,11 @@ void publish_snapshot() {
   out.phase = g_lifecycle.phase();
   out.mode = g_match_mode;
   out.in_practice = is_training();
-  out.tab_available = !slippi::playback::enabled() && !slippi::online::is_online_match() &&
-                      (out.phase == Phase::Idle || out.phase == Phase::Searching);
+  const bool playback = slippi::playback::enabled();
+  const bool online_match = slippi::online::is_online_match() || is_online_scene();
+  const bool session_active = slippi::online::session_mode() >= 0;
+  out.tab_available = matchmaking_tab_available(out.phase, playback, online_match, session_active);
+  out.can_start = out.phase == Phase::Idle && !playback && !online_match && !session_active;
   out.cosmetic_profile_locked = out.phase == Phase::Searching || out.phase == Phase::Handoff ||
                                 out.phase == Phase::OnlineFlow || out.phase == Phase::InMatch;
   out.controller_port = g_practice.valid ? g_practice.controller_port : 0;
@@ -248,7 +267,7 @@ void publish_snapshot() {
     case Phase::OnlineFlow: out.status = "Connecting..."; break;
     case Phase::InMatch: out.status = "In match"; break;
     case Phase::Failure: out.status = "Disconnected"; break;
-    case Phase::ReturningToPractice: out.status = "Returning to practice..."; break;
+    case Phase::ReturningToPractice: out.status = "Returning..."; break;
   }
   std::lock_guard<std::mutex> lock(g_mutex);
   g_snapshot = std::move(out);
@@ -331,14 +350,17 @@ void tick() {
     if (before == Phase::InMatch && g_lifecycle.phase() == Phase::Idle)
       clear_search_metadata();
   } else if (g_lifecycle.phase() == Phase::ReturningToPractice) {
-    if (is_training() && host::rd8(kSceneState + 3) == 2) ++g_return_ticks;
+    const bool origin_ready = host::rd8(kSceneState) == g_origin_major &&
+                              (!g_restore_training || host::rd8(kSceneState + 3) == 2);
+    if (origin_ready) ++g_return_ticks;
     else g_return_ticks = 0;
     if (g_return_ticks >= 3) {
-      restore_practice_fields();
+      if (g_restore_training) restore_practice_fields();
       g_lifecycle.practice_restored();
       clear_search_metadata();
       ++g_generation;
-      host::log("native practice: Training configuration fields restored");
+      host::log("native practice: offline scene %02X restored%s", g_origin_major,
+                g_restore_training ? " with Training configuration" : "");
     }
   }
 
@@ -354,6 +376,7 @@ void shutdown() {
     slippi::online::native_cleanup_match();
   g_lifecycle.reset();
   g_practice = {};
+  g_restore_training = false;
   clear_search_metadata();
   publish_snapshot();
 }

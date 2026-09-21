@@ -1404,6 +1404,7 @@ void load_pc_settings(D3D12Options& options, int& volume) {
       // presented frame and nobody should switch it on by browsing.
       else if (key == "flickerscan") options.flicker_scan = value == "1";
       else if (key == "settingshint") options.settings_hint = value != "0";
+      else if (key == "matchmakinghint") options.matchmaking_hint = value != "0";
       else if (key == "effects") { int n = std::atoi(value.c_str()); if (n >= 0 && n <= 2) options.effects_level = n; }
       else if (key == "inputoverlay") options.input_overlay = value == "1";
       // Settings saved before the overlay could show several ports name a single port number.
@@ -1663,7 +1664,7 @@ static const char* matchmaking_state_text(int state) {
   }
 }
 
-static void draw_native_practice(SettingsState& state,
+static void draw_native_practice(SettingsState& state, D3D12Options& options,
                                  const slippi::native_practice::Snapshot& practice,
                                  const host::PadState& pad, bool have_pad) {
   using slippi::native_practice::Phase;
@@ -1730,7 +1731,7 @@ static void draw_native_practice(SettingsState& state,
   }
 
   if (!state.practice_open) {
-    if (practice.tab_available && practice.phase == Phase::Idle) {
+    if (options.matchmaking_hint && practice.tab_available && practice.phase == Phase::Idle) {
       ImGui::SetNextWindowPos(ImVec2(screen.x - 12, 52), ImGuiCond_Always, ImVec2(1, 0));
       ImGui::SetNextWindowBgAlpha(ImGui::GetTime() < 20.0 ? 0.8f : 0.35f);
       ImGui::Begin("##native_practice_hint", nullptr,
@@ -1752,11 +1753,11 @@ static void draw_native_practice(SettingsState& state,
   ImGui::TextUnformatted("Tab or Esc: return to the game");
   ImGui::Separator();
 
-  ImGui::BeginDisabled(!practice.in_practice);
+  ImGui::BeginDisabled(!practice.can_start);
   const bool start_ranked = ImGui::Button("Ranked", ImVec2(126, 32));
   ImGui::EndDisabled();
   ImGui::SameLine();
-  ImGui::BeginDisabled(!practice.in_practice);
+  ImGui::BeginDisabled(!practice.can_start);
   const bool start_unranked = ImGui::Button("Unranked", ImVec2(126, 32));
   ImGui::EndDisabled();
   ImGui::SameLine();
@@ -1764,7 +1765,7 @@ static void draw_native_practice(SettingsState& state,
   ImGui::TextDisabled("Ranked and Unranked start immediately; Direct uses a code.");
   ImGui::Separator();
 
-  if (start_ranked && practice.in_practice) {
+  if (start_ranked && practice.can_start) {
     state.practice_error[0] = 0;
     slippi::native_practice::submit_start_ranked();
     state.practice_open = false;
@@ -1773,7 +1774,7 @@ static void draw_native_practice(SettingsState& state,
     return;
   }
 
-  if (start_unranked && practice.in_practice) {
+  if (start_unranked && practice.can_start) {
     state.practice_error[0] = 0;
     slippi::native_practice::submit_start_unranked();
     state.practice_open = false;
@@ -1807,13 +1808,10 @@ static void draw_native_practice(SettingsState& state,
                                         ImGuiInputTextFlags_CharsNoBlank |
                                         ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::TextDisabled("Type or paste a code such as NAME#123.");
-    if (!practice.in_practice)
-      ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-                         "Enter Training Mode to start matchmaking.");
-    ImGui::BeginDisabled(!practice.in_practice);
+    ImGui::BeginDisabled(!practice.can_start);
     const bool start = ImGui::Button("Search Direct", ImVec2(-1, 36)) || enter;
     ImGui::EndDisabled();
-    if (start && practice.in_practice) {
+    if (start && practice.can_start) {
       std::string code, error;
       if (slippi::native_practice::normalize_direct_code(state.practice_code, &code, &error)) {
         std::snprintf(state.practice_code, sizeof state.practice_code, "%s", code.c_str());
@@ -2635,7 +2633,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
       ImGui::TextDisabled("Off. Nothing is sent to Discord. Needs an Application ID from discord.com/developers/applications.");
     }
 
-    ImGui::Checkbox("Open this panel at startup", &options.settings_open);
+    changed |= ImGui::Checkbox("Open this panel at startup", &options.settings_open);
+    changed |= ImGui::Checkbox("Show the \"Matchmaking: Tab\" reminder", &options.matchmaking_hint);
         ImGui::EndTabItem();
       }
       if (ImGui::BeginTabItem("Controls", nullptr, tab_flags("Controls"))) {
@@ -3218,6 +3217,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
            << "\nstartup " << (options.settings_open ? 1 : 0)
            // Read since it was added and never written, so hiding the reminder lasted one session.
            << "\nsettingshint " << (options.settings_hint ? 1 : 0)
+           << "\nmatchmakinghint " << (options.matchmaking_hint ? 1 : 0)
            << "\ninputoverlay " << options.input_overlay << "\ninputoverlayports " << options.input_overlay_ports
            << "\ninputoverlayhideborder " << options.input_overlay_hide_border
            << "\ninputoverlayvalues " << options.input_overlay_values
@@ -3381,7 +3381,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   }
   const bool practice_was_open = state.practice_open;
   if (!state.fill_window && !state.open && !state.menu_open)
-    draw_native_practice(state, practice, pad, have_pad);
+    draw_native_practice(state, options, practice, pad, have_pad);
   if (practice_was_open && !state.practice_open) state.practice_release_capture = true;
   if (!state.open) {
     // Keep the closed state passive: opening is intentionally F1-only so controller

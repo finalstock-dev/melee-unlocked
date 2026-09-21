@@ -57,6 +57,8 @@ struct D3D12Options {
   // The "Settings: F1" reminder in the corner. On for a new player, off for anyone who knows the
   // key and does not want it in a recording.
   bool settings_hint = true;
+  // The small "Matchmaking: Tab" reminder. Matchmaking remains available when it is hidden.
+  bool matchmaking_hint = true;
   bool input_overlay = false;     // on-screen controller display, for streaming
   int input_overlay_ports = 1;    // bitmask of the controller ports it shows (bit 0 = port 1)
   bool input_overlay_values = false;
