@@ -33,6 +33,13 @@ int main() {
   CHECK(slippi::native_practice::format_search_duration(60) == "0:01");
   CHECK(slippi::native_practice::format_search_duration(3660) == "1:01");
   CHECK(slippi::native_practice::format_search_duration(5400) == "1:30");
+  CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::Idle));
+  CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::Searching));
+  CHECK(slippi::native_practice::phase_forces_input_capture(Phase::Handoff));
+  CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::OnlineFlow));
+  CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::InMatch));
+  CHECK(slippi::native_practice::phase_forces_input_capture(Phase::Failure));
+  CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::ReturningToPractice));
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

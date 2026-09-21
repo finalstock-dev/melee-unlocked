@@ -134,6 +134,10 @@ std::string format_search_duration(uint32_t ticks) {
   return out;
 }
 
+bool phase_forces_input_capture(Phase phase) {
+  return phase == Phase::Handoff || phase == Phase::Failure;
+}
+
 const char* phase_name(Phase phase) {
   switch (phase) {
     case Phase::Idle: return "Idle";

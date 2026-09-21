@@ -1686,7 +1686,8 @@ static void draw_native_practice(SettingsState& state,
     ImGui::SetNextWindowBgAlpha(0.88f);
     ImGui::Begin("##native_practice_return", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs |
+                 ImGuiWindowFlags_NoSavedSettings);
     ImGui::TextUnformatted("Returning to practice...");
     ImGui::End();
     return;
@@ -1825,6 +1826,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   const bool practice_forced = practice.phase == slippi::native_practice::Phase::Handoff ||
                                practice.phase == slippi::native_practice::Phase::Failure ||
                                practice.phase == slippi::native_practice::Phase::ReturningToPractice;
+  const bool practice_force_capture =
+      slippi::native_practice::phase_forces_input_capture(practice.phase);
   const bool practice_nav = state.practice_open || practice.phase == slippi::native_practice::Phase::Failure;
   // Dear ImGui's Win32 backend polls XInput itself whenever gamepad navigation is enabled, and maps
   // the Xbox X button to its "menu" key, which pops up ImGui's window switcher for as long as the
@@ -1912,7 +1915,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   if (practice_forced || practice.phase == slippi::native_practice::Phase::OnlineFlow ||
       practice.phase == slippi::native_practice::Phase::InMatch)
     state.practice_open = false;
-  const bool practice_capture = state.practice_open || practice_forced || state.practice_release_capture;
+  const bool practice_capture = state.practice_open || practice_force_capture ||
+                                state.practice_release_capture;
   host::window_input_capture(state.open || state.menu_open || practice_capture);
   state.intervals[state.cursor++ % state.intervals.size()] = ImGui::GetIO().DeltaTime*1000.f;
   if (streamline::reflex_available())
@@ -3485,8 +3489,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   }
   // Same rule as at the top of the frame. With only the in-game (Esc) menu open, this used to say
   // "not captured" while the top said "captured", so the pointer was shown and hidden every frame.
-  host::window_input_capture(state.open || state.menu_open || state.practice_open ||
-                             practice_forced || state.practice_release_capture);
+  host::window_input_capture(state.open || state.menu_open || practice_capture);
   ImGui::Render();
   return changed;
 }

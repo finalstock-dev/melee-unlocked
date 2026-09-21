@@ -55,6 +55,9 @@ class Lifecycle {
 bool normalize_direct_code(const std::string& input, std::string* normalized, std::string* error);
 // Formats a 60 Hz search-tick count for the render snapshot without using wall-clock time.
 std::string format_search_duration(uint32_t ticks);
+// Only transition/failure phases that must suppress guest input force global capture. Returning to
+// Training lands on its character-select scene, where the player must be able to continue.
+bool phase_forces_input_capture(Phase phase);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice
