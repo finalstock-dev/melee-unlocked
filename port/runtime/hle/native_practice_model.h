@@ -53,6 +53,8 @@ class Lifecycle {
 // Slippi connect codes are ASCII NAME#digits. Whitespace from a copied code is ignored and the
 // player name is upper-cased. Returns false with a user-facing reason when the input is invalid.
 bool normalize_direct_code(const std::string& input, std::string* normalized, std::string* error);
+// Formats a 60 Hz search-tick count for the render snapshot without using wall-clock time.
+std::string format_search_duration(uint32_t ticks);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice

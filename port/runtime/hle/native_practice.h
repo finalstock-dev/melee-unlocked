@@ -10,8 +10,12 @@
 
 namespace slippi::native_practice {
 
+// Values intentionally match Slippi's OnlinePlayMode for the two native-practice modes.
+enum class MatchMode : uint8_t { None = 0xFF, Unranked = 1, Direct = 2 };
+
 struct Snapshot {
   Phase phase = Phase::Idle;
+  MatchMode mode = MatchMode::None;
   bool in_practice = false;
   bool tab_available = false;
   bool cosmetic_profile_locked = false;
@@ -26,6 +30,7 @@ struct Snapshot {
 };
 
 Snapshot snapshot();
+void submit_start_unranked();
 void submit_start_direct(const std::string& connect_code);
 void submit_cancel();
 void submit_acknowledge_failure();
@@ -37,5 +42,6 @@ void shutdown();
 // Narrow integration hook for cosmetic work: do not change the active cosmetic profile from the
 // start of a search through online cleanup. No cosmetic implementation is required by this module.
 bool cosmetic_profile_locked();
+const char* match_mode_name(MatchMode mode);
 
 }  // namespace slippi::native_practice

@@ -63,10 +63,10 @@ $GameArgs = @(
 
 Write-Host "Diagnostic flow:"
 Write-Host "  1. Enter Training, then press Tab."
-Write-Host "  2. Type or Ctrl+V the Direct code and start searching."
-Write-Host "  3. Close with Tab and continue practicing. Reopen once and test Cancel."
-Write-Host "  4. Search again. Verify Match found -> normal online flow."
-Write-Host "  5. For failure coverage, end the peer before gameplay; release A, then press A once."
+Write-Host "  2. Start Unranked. Verify the elapsed timer, close with Tab, keep practicing, then reopen and Cancel."
+Write-Host "  3. Repeat Unranked and, if matched, verify Match found -> normal online flow."
+Write-Host "  4. If a Direct peer is available, type or Ctrl+V the code and repeat the flow."
+Write-Host "  5. For pre-game failure coverage, end the peer before gameplay; release A, then press A once."
 Write-Host "Close the game when the run is complete. Logs will be summarized automatically."
 
 & $Exe @GameArgs
@@ -91,13 +91,15 @@ if ($Markers.Count -eq 0) { $Lines += "(none)" } else { $Lines += $Markers }
 $Lines += @(
     "",
     "Marker checks (observed, not inferred):",
-    "Search started: $([bool]($Markers -match 'Direct search started'))",
+    "Search started: $([bool]($Markers -match 'search started'))",
+    "Unranked search: $([bool]($Markers -match 'Unranked search started'))",
+    "Direct search: $([bool]($Markers -match 'Direct search started'))",
     "Cancel cleanup: $([bool]($Markers -match 'search cancelled and connection cleaned up'))",
     "Online handoff: $([bool]($Markers -match 'handing off to normal online flow'))",
     "Pre-match failure: $([bool]($Markers -match 'pre-match failure'))",
     "Practice return: $([bool]($Markers -match 'Training configuration fields restored'))",
     "",
-    "Manually record: focus/paste, held-A rejection, visible transition timing, practice configuration, and opponent type (native or stock Slippi)."
+    "Manually record: visible search timer, focus/paste, held-A rejection, transition timing, practice configuration, and opponent type (Unranked, native Direct, or stock Slippi Direct)."
 )
 $Lines | Set-Content -Path $Summary -Encoding UTF8
 Write-Host "Diagnostic summary: $Summary"

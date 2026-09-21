@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 
 namespace slippi::native_practice {
 
@@ -122,6 +123,15 @@ bool normalize_direct_code(const std::string& input, std::string* normalized, st
   if (normalized) *normalized = out;
   if (error) error->clear();
   return true;
+}
+
+std::string format_search_duration(uint32_t ticks) {
+  const uint32_t total_seconds = ticks / 60;
+  const uint32_t minutes = total_seconds / 60;
+  const uint32_t seconds = total_seconds % 60;
+  char out[32];
+  std::snprintf(out, sizeof out, "%u:%02u", minutes, seconds);
+  return out;
 }
 
 const char* phase_name(Phase phase) {

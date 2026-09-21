@@ -915,8 +915,8 @@ bool native_start_match(int mode, const std::string& connect_code, uint8_t chara
     return false;
   }
 
-  // Same payloads the guest sends from the stock Slippi online menus. Direct practice currently
-  // chooses a random legal stage and carries the practice character/costume into the online CSS.
+  // Same payloads the guest sends from the stock Slippi online menus. Native practice chooses a
+  // random legal stage and carries the practice character/costume into the normal online flow.
   uint8_t selections[9] = {0, character, color, 1, 0, 0, 3, (uint8_t)mode, 0};
   set_match_selections(selections);
   uint8_t find[19] = {};

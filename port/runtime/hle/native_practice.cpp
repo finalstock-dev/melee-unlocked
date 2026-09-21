@@ -24,7 +24,7 @@ constexpr uint32_t kPlayerStride = 0xE90;
 constexpr uint32_t kMatchStage = 0x8046B6A0 + 0x24C8 + 0x0E;
 constexpr uint32_t kSearchTimeoutTicks = 60 * 90;
 
-enum class CommandKind { StartDirect, Cancel, AcknowledgeFailure };
+enum class CommandKind { StartUnranked, StartDirect, Cancel, AcknowledgeFailure };
 struct Command { CommandKind kind; std::string text; };
 
 struct SavedPlayer {
@@ -54,6 +54,7 @@ Lifecycle g_lifecycle;
 PracticeConfig g_practice;
 std::string g_connect_code;
 std::string g_opponent;
+MatchMode g_match_mode = MatchMode::None;
 int g_matchmaking_state = 0;
 uint32_t g_search_ticks = 0;
 uint32_t g_generation = 0;
@@ -131,9 +132,10 @@ void run_decision(const Decision& d) {
   if (d.cleanup_connection) slippi::online::native_cleanup_match();
   if (d.request_online_handoff) {
     write_event_backup();
-    host::wr8(kOnlineMode, 2);  // Matchmaking::DIRECT, consumed by the normal online scene.
+    host::wr8(kOnlineMode, (uint8_t)g_match_mode);  // Consumed by the normal online scene.
     request_major(kOnlineMajor);
-    host::log("native practice: match found; handing off to normal online flow");
+    host::log("native practice: %s match found; handing off to normal online flow",
+              match_mode_name(g_match_mode));
   }
   if (d.request_practice_return) {
     write_event_backup();
@@ -150,40 +152,59 @@ void fail(const std::string& reason, bool cleanup) {
   run_decision(g_lifecycle.fail(reason, cleanup));
 }
 
+void clear_search_metadata() {
+  g_match_mode = MatchMode::None;
+  g_connect_code.clear();
+  g_opponent.clear();
+  g_matchmaking_state = 0;
+  g_search_ticks = 0;
+}
+
+void start_search(MatchMode mode, const std::string& connect_code) {
+  if (g_lifecycle.phase() != Phase::Idle) return;
+  if (!is_training()) { fail("Start matchmaking from the Training scene", false); return; }
+  if (slippi::online::session_mode() >= 0) { fail("An online session is already active", false); return; }
+
+  g_practice = capture_practice();
+  const SavedPlayer& player = g_practice.players[g_practice.local_slot];
+  g_match_mode = mode;
+  g_connect_code = connect_code;
+  g_opponent.clear();
+  g_matchmaking_state = 0;
+  g_search_ticks = 0;
+  if (!g_lifecycle.begin_search()) return;
+
+  const int online_mode = (int)mode;
+  host::wr8(kOnlineMode, (uint8_t)online_mode);
+  std::string error;
+  if (!slippi::online::native_start_match(online_mode, connect_code, (uint8_t)player.character,
+                                           player.costume, &error)) {
+    fail(error.empty() ? "Unable to start matchmaking" : error, true);
+    return;
+  }
+  ++g_generation;
+  host::log("native practice: %s search started%s%s (Training port %d)",
+            match_mode_name(mode), connect_code.empty() ? "" : " for ", connect_code.c_str(),
+            g_practice.controller_port + 1);
+}
+
 void process_command(Command command) {
   switch (command.kind) {
+    case CommandKind::StartUnranked:
+      start_search(MatchMode::Unranked, {});
+      break;
     case CommandKind::StartDirect: {
       if (g_lifecycle.phase() != Phase::Idle) return;
       std::string code, error;
-      if (!is_training()) { fail("Start Direct from the Training scene", false); return; }
       if (!normalize_direct_code(command.text, &code, &error)) { fail(error, false); return; }
-      if (slippi::online::session_mode() >= 0) { fail("An online session is already active", false); return; }
-      g_practice = capture_practice();
-      const SavedPlayer& player = g_practice.players[g_practice.local_slot];
-      g_connect_code = code;
-      g_opponent.clear();
-      g_matchmaking_state = 0;
-      g_search_ticks = 0;
-      if (!g_lifecycle.begin_search()) return;
-      host::wr8(kOnlineMode, 2);
-      if (!slippi::online::native_start_match(2, code, (uint8_t)player.character,
-                                               player.costume, &error)) {
-        fail(error.empty() ? "Unable to start Direct search" : error, true);
-        return;
-      }
-      ++g_generation;
-      host::log("native practice: Direct search started for %s (Training port %d)",
-                code.c_str(), g_practice.controller_port + 1);
+      start_search(MatchMode::Direct, code);
       break;
     }
     case CommandKind::Cancel: {
       Decision d = g_lifecycle.cancel();
       if (!d.cleanup_connection) return;
       run_decision(d);
-      g_connect_code.clear();
-      g_opponent.clear();
-      g_matchmaking_state = 0;
-      g_search_ticks = 0;
+      clear_search_metadata();
       ++g_generation;
       host::log("native practice: search cancelled and connection cleaned up");
       break;
@@ -191,12 +212,7 @@ void process_command(Command command) {
     case CommandKind::AcknowledgeFailure:
       if (g_lifecycle.phase() != Phase::Failure) return;
       run_decision(g_lifecycle.acknowledge_failure());
-      if (g_lifecycle.phase() == Phase::Idle) {
-        g_connect_code.clear();
-        g_opponent.clear();
-        g_matchmaking_state = 0;
-        g_search_ticks = 0;
-      }
+      if (g_lifecycle.phase() == Phase::Idle) clear_search_metadata();
       ++g_generation;
       break;
   }
@@ -205,6 +221,7 @@ void process_command(Command command) {
 void publish_snapshot() {
   Snapshot out;
   out.phase = g_lifecycle.phase();
+  out.mode = g_match_mode;
   out.in_practice = is_training();
   out.tab_available = !slippi::playback::enabled() && !slippi::online::is_online_match() &&
                       (out.phase == Phase::Idle || out.phase == Phase::Searching);
@@ -219,7 +236,10 @@ void publish_snapshot() {
   out.detail = g_lifecycle.error();
   switch (out.phase) {
     case Phase::Idle: out.status = out.in_practice ? "Practice" : "Ready"; break;
-    case Phase::Searching: out.status = "Searching for " + g_connect_code; break;
+    case Phase::Searching:
+      out.status = std::string("Searching ") + match_mode_name(g_match_mode);
+      if (!g_connect_code.empty()) out.status += " for " + g_connect_code;
+      break;
     case Phase::Handoff: out.status = "Match found"; break;
     case Phase::OnlineFlow: out.status = "Connecting..."; break;
     case Phase::InMatch: out.status = "In match"; break;
@@ -240,6 +260,11 @@ Snapshot snapshot() {
 void submit_start_direct(const std::string& connect_code) {
   std::lock_guard<std::mutex> lock(g_mutex);
   g_commands.push_back({CommandKind::StartDirect, connect_code});
+}
+
+void submit_start_unranked() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_commands.push_back({CommandKind::StartUnranked, {}});
 }
 
 void submit_cancel() {
@@ -263,7 +288,7 @@ void tick() {
   if (g_lifecycle.phase() == Phase::Searching) {
     ++g_search_ticks;
     if (g_search_ticks > kSearchTimeoutTicks) {
-      fail("The Direct search timed out", true);
+      fail(std::string("The ") + match_mode_name(g_match_mode) + " search timed out", true);
     } else {
       const slippi::online::NativeMatchPoll poll = slippi::online::native_poll_match();
       g_matchmaking_state = poll.process_state;
@@ -277,18 +302,19 @@ void tick() {
   } else if (g_lifecycle.phase() == Phase::Handoff ||
              g_lifecycle.phase() == Phase::OnlineFlow ||
              g_lifecycle.phase() == Phase::InMatch) {
+    const Phase before = g_lifecycle.phase();
     run_decision(g_lifecycle.observe_session(is_online_scene(),
                                              slippi::online::session_mode() >= 0,
                                              slippi::online::is_online_match()));
+    if (before == Phase::InMatch && g_lifecycle.phase() == Phase::Idle)
+      clear_search_metadata();
   } else if (g_lifecycle.phase() == Phase::ReturningToPractice) {
     if (is_training() && host::rd8(kSceneState + 3) == 2) ++g_return_ticks;
     else g_return_ticks = 0;
     if (g_return_ticks >= 3) {
       restore_practice_fields();
       g_lifecycle.practice_restored();
-      g_connect_code.clear();
-      g_opponent.clear();
-      g_matchmaking_state = 0;
+      clear_search_metadata();
       ++g_generation;
       host::log("native practice: Training configuration fields restored");
     }
@@ -306,13 +332,19 @@ void shutdown() {
     slippi::online::native_cleanup_match();
   g_lifecycle.reset();
   g_practice = {};
-  g_connect_code.clear();
-  g_opponent.clear();
-  g_matchmaking_state = 0;
-  g_search_ticks = 0;
+  clear_search_metadata();
   publish_snapshot();
 }
 
 bool cosmetic_profile_locked() { return snapshot().cosmetic_profile_locked; }
+
+const char* match_mode_name(MatchMode mode) {
+  switch (mode) {
+    case MatchMode::Unranked: return "Unranked";
+    case MatchMode::Direct: return "Direct";
+    case MatchMode::None: return "matchmaking";
+  }
+  return "matchmaking";
+}
 
 }  // namespace slippi::native_practice

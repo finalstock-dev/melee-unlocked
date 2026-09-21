@@ -1719,7 +1719,10 @@ static void draw_native_practice(SettingsState& state,
     ImGui::Begin("##native_search_status", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::Text("Direct: %s", matchmaking_state_text(practice.matchmaking_state));
+    ImGui::Text("%s: %s", slippi::native_practice::match_mode_name(practice.mode),
+                matchmaking_state_text(practice.matchmaking_state));
+    const std::string elapsed = slippi::native_practice::format_search_duration(practice.search_ticks);
+    ImGui::TextDisabled("Searching %s", elapsed.c_str());
     ImGui::TextDisabled("Tab: search controls");
     ImGui::End();
   }
@@ -1749,17 +1752,31 @@ static void draw_native_practice(SettingsState& state,
 
   ImGui::BeginDisabled();
   ImGui::Button("Ranked", ImVec2(126, 32));
-  ImGui::SameLine();
-  ImGui::Button("Unranked", ImVec2(126, 32));
   ImGui::EndDisabled();
   ImGui::SameLine();
-  ImGui::Button("Direct", ImVec2(126, 32));
-  ImGui::TextDisabled("Ranked and Unranked are not enabled in this milestone.");
+  ImGui::BeginDisabled(!practice.in_practice);
+  const bool start_unranked = ImGui::Button("Unranked", ImVec2(126, 32));
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button("Direct", ImVec2(126, 32))) state.practice_focus_code = true;
+  ImGui::TextDisabled("Ranked is not enabled. Unranked starts immediately; Direct uses a code.");
   ImGui::Separator();
 
+  if (start_unranked && practice.in_practice) {
+    state.practice_error[0] = 0;
+    slippi::native_practice::submit_start_unranked();
+    state.practice_open = false;
+    state.practice_release_capture = true;
+    ImGui::End();
+    return;
+  }
+
   if (practice.phase == Phase::Searching) {
-    ImGui::Text("Code: %s", practice.connect_code.c_str());
+    ImGui::Text("Mode: %s", slippi::native_practice::match_mode_name(practice.mode));
+    if (!practice.connect_code.empty()) ImGui::Text("Code: %s", practice.connect_code.c_str());
     ImGui::TextUnformatted(matchmaking_state_text(practice.matchmaking_state));
+    const std::string elapsed = slippi::native_practice::format_search_duration(practice.search_ticks);
+    ImGui::Text("Search time: %s", elapsed.c_str());
     if (!practice.opponent.empty()) ImGui::Text("Opponent: %s", practice.opponent.c_str());
     ImGui::TextWrapped("Close this popup with Tab to keep practicing while the search continues.");
     if (ImGui::Button("Cancel search", ImVec2(-1, 36))) {
@@ -1781,7 +1798,7 @@ static void draw_native_practice(SettingsState& state,
     ImGui::TextDisabled("Type or paste a code such as NAME#123.");
     if (!practice.in_practice)
       ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.30f, 1.0f),
-                         "Enter Training Mode to start Direct matchmaking.");
+                         "Enter Training Mode to start matchmaking.");
     ImGui::BeginDisabled(!practice.in_practice);
     const bool start = ImGui::Button("Search Direct", ImVec2(-1, 36)) || enter;
     ImGui::EndDisabled();

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-#include "native_practice_model.h"
+#include "native_practice.h"
 
 #include <cstdio>
 #include <string>
 
 using slippi::native_practice::Lifecycle;
+using slippi::native_practice::MatchMode;
 using slippi::native_practice::Phase;
+
+static_assert((int)MatchMode::Unranked == 1, "Unranked must match Slippi's online-mode value");
+static_assert((int)MatchMode::Direct == 2, "Direct must match Slippi's online-mode value");
 
 #define CHECK(condition) do { \
   if (!(condition)) { \
@@ -24,6 +28,11 @@ int main() {
   CHECK(!slippi::native_practice::normalize_direct_code("ABCD", &code, &error));
   CHECK(!slippi::native_practice::normalize_direct_code("AB#12X", &code, &error));
   CHECK(!slippi::native_practice::normalize_direct_code("AB##12", &code, &error));
+  CHECK(slippi::native_practice::format_search_duration(0) == "0:00");
+  CHECK(slippi::native_practice::format_search_duration(59) == "0:00");
+  CHECK(slippi::native_practice::format_search_duration(60) == "0:01");
+  CHECK(slippi::native_practice::format_search_duration(3660) == "1:01");
+  CHECK(slippi::native_practice::format_search_duration(5400) == "1:30");
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

@@ -11,19 +11,20 @@ the fork's existing GPL-2.0-or-later Slippi interfaces and the observed high-lev
 
 ## Scope delivered
 
-This milestone implements the Direct-code vertical slice:
+This milestone implements the Direct-code vertical slice and native Unranked search:
 
 - Tab opens a native ImGui matchmaking popup in normal menus and Training.
 - Direct accepts keyboard typing and clipboard paste. Input is normalized to uppercase `NAME#digits` and limited to Slippi's 18-byte field.
 - Controller navigation follows the human controller port found in Training. The UI waits for a neutral controller before accepting buttons.
-- Starting a Direct search captures only the relevant Training configuration fields, starts the existing Slippi matchmaking implementation, and polls its side-effecting match state once per 60 Hz simulation tick.
-- Closing the popup releases Training while search continues. A passive status indicator remains, and Tab reopens Cancel.
+- Starting Direct or Unranked captures only the relevant Training configuration fields, starts the existing Slippi matchmaking implementation, and polls its side-effecting match state once per 60 Hz simulation tick.
+- Unranked carries the Training character/costume into Slippi's existing fixed-rules matchmaking flow. Direct continues to use a typed or pasted connect code.
+- Closing the popup releases Training while search continues. A passive status indicator remains, shows elapsed search time from the 60 Hz coordinator clock, and Tab reopens Cancel.
 - Once both peers are ready, input is captured briefly, `Match found / Connecting...` appears, and the guest enters major scene 8 (the normal Slippi online flow). The overlay clears as soon as that scene is active, before the first online gameplay frame.
 - Cancel invokes the existing Slippi connection cleanup. A 90-second timeout also cleans up.
 - A pre-game disconnect shows `Disconnected — Press A to continue`. A held A is rejected until the selected controller is neutral and A is pressed again. The coordinator then requests Training and reapplies the saved character, costume, port, player/CPU kinds, CPU level, stage field, and percentages instead of restoring RAM.
 - Once online gameplay reaches frame 1, ordinary Slippi reporting, disconnect, savestate, and set-flow code remains the owner. The practice coordinator does not replace it.
 
-Ranked and Unranked are visible but disabled and explicitly labelled as not included in this milestone. Their UI is structured for later commands, but neither is presented as functional.
+Ranked remains visible but disabled. Unranked is enabled but requires Windows/public-matchmaking validation; unavailable peer testing must remain reported as unrun rather than inferred from the shared Slippi path.
 
 ## Architecture and invariants
 
@@ -63,20 +64,20 @@ The script locally extracts/recompiles the ISO-derived guest, configures and bui
 - Two-native-instance coverage uses `tools/online_pair.py` and verifies the native transport/simulation pair. Its local-peer mode bypasses public matchmaking and does not validate the Tab/Direct-code server path.
 - Native-versus-stock-Slippi coverage must use a separately launched stock Slippi Dolphin peer and the real Direct code. That is the interoperability gate for this feature.
 
-The portable model test covers connect-code validation, search/cancel/requeue lifecycle, successful handoff, pre-match failure/acknowledgement/return, and the post-frame-1 ownership boundary. The Windows game still needs the manual hardware/network matrix below; unrun items must not be marked passed:
+The portable model test covers connect-code validation, elapsed-time formatting, search/cancel/requeue lifecycle, successful handoff, pre-match failure/acknowledgement/return, and the post-frame-1 ownership boundary. The Windows game still needs the manual hardware/network matrix below; unrun items must not be marked passed:
 
 1. D3D12 and D3D11 typing, Ctrl+V, controller focus, and selected ports 1–4.
 2. Hold A while failure appears; release it; confirm only a new A acknowledges.
 3. Repeated search/cancel cycles and the 90-second timeout cleanup.
 4. Character, costume, controller port, CPU type/level, stage, and percentages after a post-handoff failure return.
 5. Transition-overlay dismissal when scene 8 becomes active, with no input in the first gameplay frame.
-6. Two native instances, then native versus current stock Slippi by Direct code.
+6. A real Unranked public match, two native instances, then native versus current stock Slippi by Direct code.
 7. Same-settings performance comparison at 60 and 120 presentations per second.
 
 ## Next implementation step
 
-Run the Windows Direct-code matrix above and fix any scene-return or input-timing defects before
-expanding matchmaking scope.
+Run the Windows Unranked queue/cancel/timer test and the Direct-code matrix above, then fix any
+scene-return or input-timing defects before expanding matchmaking scope.
 
 After that gate, add a Preflight-style CPU practice-controls milestone. Keep it confined to Training
 and disable/remove its overrides before online simulation. The intended native popup controls are:
@@ -122,6 +123,5 @@ approved export/API or user-supplied files; do not depend on unapproved bulk scr
 training remains offline, and the practice policy must be unloaded before any online simulation.
 
 Confirm the exact Preflight behavior during implementation rather than copying its patch or assuming
-undocumented options. Once the CPU-practice controls pass isolation and transition testing, add
-Unranked's selection policy. Add Ranked last so ranked reporting and set flow can be validated
+undocumented options. Keep Ranked last so ranked selection, reporting, and set flow can be validated
 independently.
