@@ -42,6 +42,7 @@ These are the files most likely to overlap another feature branch:
 
 | File | Additive change |
 | --- | --- |
+| `build.bat` | Supports a no-pause flag used only by the one-click wrapper. |
 | `CMakeLists.txt` | Adds the portable lifecycle/validation test target. |
 | `port/runtime/hle/exi_slippi.cpp` | Calls the coordinator once per retrace and shuts it down before Slippi. |
 | `port/runtime/hle/slippi_online.h/.cpp` | Adds a narrow simulation-thread bridge around existing selection, find, match-state, and cleanup handlers. |
@@ -50,6 +51,11 @@ These are the files most likely to overlap another feature branch:
 | `port/runtime/host/window.h/.cpp` | Reserves the Tab edge and exposes all four routed UI pads; capture now neutralizes every port rather than only port 1. |
 
 ## Windows build and diagnostic run
+
+For the simplest build-and-test flow, double-click
+`BUILD_AND_PLAY_NATIVE_PRACTICE.bat`. It opens an ISO file picker when needed, builds the Release
+executable, runs the native-practice model test, then launches the 120 fps diagnostic session.
+The clean ISO stays local and is not copied or modified.
 
 From a Visual Studio 2022 Developer PowerShell:
 
