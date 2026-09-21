@@ -75,4 +75,18 @@ The portable model test covers connect-code validation, search/cancel/requeue li
 
 ## Next implementation step
 
-Run the Windows Direct-code matrix above and fix any scene-return or input-timing defects before enabling Unranked. After that gate, add Unranked's selection policy; add Ranked last so ranked reporting and set flow can be validated independently.
+Run the Windows Direct-code matrix above and fix any scene-return or input-timing defects before
+expanding matchmaking scope.
+
+After that gate, add a Preflight-style CPU practice-controls milestone. Keep it confined to Training
+and disable/remove its overrides before online simulation. The intended native popup controls are:
+
+- CPU character, costume, behavior/type, and level;
+- stage and starting percent configuration for both players;
+- a quick position/percent reset that does not restart or duplicate matchmaking polling; and
+- exact restoration of those settings after cancellation or a pre-match failure.
+
+Confirm the exact Preflight behavior during implementation rather than copying its patch or assuming
+undocumented options. Once the CPU-practice controls pass isolation and transition testing, add
+Unranked's selection policy. Add Ranked last so ranked reporting and set flow can be validated
+independently.
