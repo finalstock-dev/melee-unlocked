@@ -2634,7 +2634,6 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
     }
 
     changed |= ImGui::Checkbox("Open this panel at startup", &options.settings_open);
-    changed |= ImGui::Checkbox("Show the \"Matchmaking: Tab\" reminder", &options.matchmaking_hint);
         ImGui::EndTabItem();
       }
       if (ImGui::BeginTabItem("Controls", nullptr, tab_flags("Controls"))) {
@@ -3071,6 +3070,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
       if (ImGui::BeginTabItem("Overlays", nullptr, tab_flags("Overlays"))) {
     changed |= ImGui::Checkbox("Show the \"Settings: F1\" reminder", &options.settings_hint);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("F1 still opens this panel with it off.");
+    changed |= ImGui::Checkbox("Show the \"Matchmaking: Tab\" reminder", &options.matchmaking_hint);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tab still opens matchmaking with it off.");
     ImGui::Checkbox("Performance overlay", &options.performance_overlay);
     changed |= ImGui::Checkbox("FPS counter (top left)", &options.show_fps);
     // VRAM has its own line in the Video tab, right by the settings that move it; no overlay needed.
