@@ -86,6 +86,21 @@ and disable/remove its overrides before online simulation. The intended native p
 - a quick position/percent reset that does not restart or duplicate matchmaking polling; and
 - exact restoration of those settings after cancellation or a pre-match failure.
 
+The follow-on CPU roadmap may add replay-derived skill profiles using authorized local `.slp`
+datasets joined to a rating/ranking source such as Lucky Stats. Replays are training data, not input
+scripts: an offline pipeline should extract state/action examples and aggregate them by character,
+matchup, and skill cohort, then export a small deterministic runtime policy. Proposed presets are
+Tech Fundamentals, Defensive, Offensive, Local PR, Regional Demon, Top 100, and Top 10. The last
+four names describe source-data cohorts until human sparring tests calibrate their actual strength;
+they must not be marketed as literal simulations of ranked players.
+
+Start with one well-covered character/matchup pilot. Validate reaction delay, execution error,
+option diversity, DI/SDI/tech choices, recovery, and punish behavior before expanding character
+coverage. Use a scripted safety layer for recovery and invalid states because replay imitation alone
+can drift into situations absent from its training examples. Dataset acquisition must use an
+approved export/API or user-supplied files; do not depend on unapproved bulk scraping. Model
+training remains offline, and the practice policy must be unloaded before any online simulation.
+
 Confirm the exact Preflight behavior during implementation rather than copying its patch or assuming
 undocumented options. Once the CPU-practice controls pass isolation and transition testing, add
 Unranked's selection policy. Add Ranked last so ranked reporting and set flow can be validated
