@@ -6,6 +6,7 @@
 #include "host.h"            // host::PadState, which input_bindings.h uses without declaring
 #include "input_bindings.h"
 #include <array>
+#include <cstdint>
 
 namespace gx {
 
@@ -36,6 +37,17 @@ struct SettingsState {
   // Standalone settings window: the panel fills the OS window instead of floating inside one, so
   // what opens is the settings box itself rather than a box inside an empty frame.
   bool fill_window = false;
+  // Native practice matchmaking popup. Its network state lives on the simulation thread; these
+  // fields are render-only input/focus state.
+  bool practice_open = false;
+  bool practice_focus_code = false;
+  bool practice_nav_active = false;
+  bool practice_pad_armed = false;
+  bool practice_a_was_down = false;
+  bool practice_release_capture = false;
+  uint32_t practice_generation = 0;
+  char practice_code[19]{};
+  char practice_error[96]{};
 };
 
 // ImGui context plus the Win32 platform backend; the renderer backend is set up by the caller.

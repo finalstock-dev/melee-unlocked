@@ -30,11 +30,14 @@ int g_client_w = 1280, g_client_h = 960;
 ResizeCallback g_on_resize;
 std::atomic<bool> g_fullscreen_toggle{false};
 std::atomic<bool> g_settings_toggle{false};
+std::atomic<bool> g_practice_toggle{false};
 std::atomic<bool> g_escape_press{false};
 MessageCallback g_on_message;
 std::atomic<bool> g_ui_capture{false};
 std::mutex g_ui_pad_mutex;
 PadState g_ui_pad{};
+PadState g_ui_pads[4]{};
+bool g_ui_has_pad = false;
 bool g_ui_gamecube = false;
 void raw_input(HRAWINPUT raw);
 void ds4_init_defaults();
@@ -45,6 +48,17 @@ LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
   // the screen for the rest of the match. It comes back the moment the panel opens or focus leaves.
   // Before the ImGui handler, which would otherwise set the arrow itself.
   if (m == WM_SETCURSOR && LOWORD(l) == HTCLIENT && !g_ui_capture.load() && GetForegroundWindow() == h) { SetCursor(nullptr); return TRUE; }
+  // Reserve Tab before ImGui or the game's keyboard bindings see it. The edge reaches the practice
+  // UI whether a text field is active or the overlay is closed.
+  if (m == WM_KEYDOWN && w == VK_TAB) {
+    if (!(l & (1 << 30))) g_practice_toggle.store(true);
+    // Tab is reserved for native matchmaking. Never let a binding on the same keyboard key reach
+    // Melee for the frame that opens or closes the overlay.
+    std::lock_guard<std::mutex> lock(g_keys_mutex); g_keys[VK_TAB] = false; return 0;
+  }
+  if (m == WM_KEYUP && w == VK_TAB) {
+    std::lock_guard<std::mutex> lock(g_keys_mutex); g_keys[VK_TAB] = false; return 0;
+  }
   if (g_on_message && g_on_message(h, m, w, l)) return 1;
   switch (m) {
     case WM_CLOSE: g_closed = true; request_exit(0); return 0;
@@ -240,11 +254,17 @@ void window_input_capture(bool capture) {
   if (g_ui_capture.exchange(capture) != capture && g_hwnd) PostMessageW(g_hwnd, kCursorRefresh, capture ? 1 : 0, 0);
 }
 bool window_ui_gamecube_pad(PadState& pad) { std::lock_guard<std::mutex> lock(g_ui_pad_mutex); pad = g_ui_pad; return g_ui_gamecube; }
+bool window_ui_pads(PadState pads[4]) {
+  std::lock_guard<std::mutex> lock(g_ui_pad_mutex);
+  for (int i = 0; i < 4; ++i) pads[i] = g_ui_pads[i];
+  return g_ui_has_pad;
+}
 void window_set_resize_callback(ResizeCallback cb) { g_on_resize = std::move(cb); }
 bool window_take_fullscreen_toggle() { return g_fullscreen_toggle.exchange(false); }
 // Several presses while nothing was being drawn count as one: the player pressed F1 again because
 // nothing seemed to happen, and wants the panel, not an even number of toggles.
 bool window_take_settings_toggle() { return g_settings_toggle.exchange(false); }
+bool window_take_practice_toggle() { return g_practice_toggle.exchange(false); }
 bool window_take_escape() { return g_escape_press.exchange(false); }
 
 void window_destroy() { if (g_hwnd) { DestroyWindow(g_hwnd); g_hwnd = nullptr; } }
@@ -636,8 +656,23 @@ void input_poll(PadState out[4]) {
   struct UiSnapshot {
     PadState* pads; bool gamecube = false;
     ~UiSnapshot() {
-      std::lock_guard<std::mutex> lock(g_ui_pad_mutex); g_ui_pad = pads[0]; g_ui_gamecube = gamecube;
-      if (g_ui_capture.load()) { pads[0] = {}; pads[0].err = 0; }
+      std::lock_guard<std::mutex> lock(g_ui_pad_mutex);
+      g_ui_pad = pads[0];
+      g_ui_gamecube = gamecube;
+      g_ui_has_pad = false;
+      for (int i = 0; i < 4; ++i) {
+        g_ui_pads[i] = pads[i];
+        if (pads[i].err == 0) g_ui_has_pad = true;
+      }
+      if (g_ui_capture.load()) {
+        // UI capture is global, not player-one-only. Keeping ports 2-4 live made menu navigation
+        // leak into Training and, during handoff, into the first online gameplay inputs.
+        for (int i = 0; i < 4; ++i) {
+          const int8_t err = pads[i].err;
+          pads[i] = {};
+          pads[i].err = err;
+        }
+      }
     }
   } ui{out};
   for (int i = 0; i < 4; ++i) { std::memset(&out[i], 0, sizeof out[i]); out[i].err = -1; }
