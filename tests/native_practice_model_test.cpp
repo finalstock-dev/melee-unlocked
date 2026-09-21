@@ -43,6 +43,11 @@ int main() {
   CHECK(slippi::native_practice::phase_shows_return_overlay(Phase::ReturningToPractice, false));
   CHECK(!slippi::native_practice::phase_shows_return_overlay(Phase::ReturningToPractice, true));
   CHECK(!slippi::native_practice::phase_shows_return_overlay(Phase::Failure, false));
+  CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Searching));
+  CHECK(slippi::native_practice::phase_owns_online_mode(Phase::Handoff));
+  CHECK(slippi::native_practice::phase_owns_online_mode(Phase::OnlineFlow));
+  CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::InMatch));
+  CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Failure));
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

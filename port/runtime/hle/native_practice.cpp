@@ -285,6 +285,21 @@ void tick() {
   }
   for (Command& command : commands) process_command(std::move(command));
 
+  // Entering major 8 directly skips the title-menu option handler that normally owns this byte.
+  // Training's scene teardown can restore the underlying vanilla .sdata2 value (zero, Ranked)
+  // after request_online_handoff wrote it. Keep the native selection authoritative through the
+  // short CSS handoff so CSSSceneDecide takes Unranked to the splash/match instead of Ranked's
+  // GameSetup/stage-strike minor.
+  if (phase_owns_online_mode(g_lifecycle.phase()) && g_match_mode != MatchMode::None) {
+    const uint8_t expected = (uint8_t)g_match_mode;
+    const uint8_t actual = host::rd8(kOnlineMode);
+    if (actual != expected) {
+      host::log("native practice: correcting guest online mode %u -> %u during handoff",
+                actual, expected);
+      host::wr8(kOnlineMode, expected);
+    }
+  }
+
   if (g_lifecycle.phase() == Phase::Searching) {
     ++g_search_ticks;
     if (g_search_ticks > kSearchTimeoutTicks) {

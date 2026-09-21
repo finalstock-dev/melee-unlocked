@@ -62,6 +62,10 @@ bool phase_forces_input_capture(Phase phase);
 // character select is active it must disappear, even though field restoration remains pending
 // until the Training match minor settles.
 bool phase_shows_return_overlay(Phase phase, bool in_practice);
+// The guest's online-mode byte normally belongs to the online menu. A native-practice handoff
+// enters that major scene without passing through the title-menu option that initializes it, so
+// the coordinator owns the byte until the online scene has taken over or gameplay begins.
+bool phase_owns_online_mode(Phase phase);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice

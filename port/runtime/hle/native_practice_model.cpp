@@ -142,6 +142,10 @@ bool phase_shows_return_overlay(Phase phase, bool in_practice) {
   return phase == Phase::ReturningToPractice && !in_practice;
 }
 
+bool phase_owns_online_mode(Phase phase) {
+  return phase == Phase::Handoff || phase == Phase::OnlineFlow;
+}
+
 const char* phase_name(Phase phase) {
   switch (phase) {
     case Phase::Idle: return "Idle";
