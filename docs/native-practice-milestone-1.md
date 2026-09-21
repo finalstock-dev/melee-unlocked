@@ -94,6 +94,26 @@ Tech Fundamentals, Defensive, Offensive, Local PR, Regional Demon, Top 100, and 
 four names describe source-data cohorts until human sparring tests calibrate their actual strength;
 they must not be marketed as literal simulations of ranked players.
 
+Treat drill style and opponent strength as separate controls. Tech Fundamentals, Defensive, and
+Offensive select which situations the CPU emphasizes; Local PR, Regional Demon, Top 100, and Top
+10 select a replay-derived performance band. Calibrate those bands with measurable outcomes rather
+than fixed reaction-speed labels, including:
+
+- L-cancel success rate by character and aerial;
+- tech-chase continuation/hit rate by knockdown state and available tech options;
+- conversion rate, with the damage or stock threshold stated explicitly;
+- damage per opening and stock-conversion rate;
+- edgeguard conversion and recovery success;
+- DI/SDI and defensive-tech quality; and
+- observation-to-action latency, execution-error rate, and option diversity.
+
+Define an opening and its end condition once in the offline analyzer so the same event cannot be
+counted differently between cohorts. Estimate bands per character and matchup, use held-out replays,
+and apply minimum-sample/shrinkage rules before displaying a tier. Runtime validation should report
+the same metrics. Never improve a tier by reading the current controller input or otherwise giving
+the CPU information a human opponent would not yet have; difficulty should come from the learned
+policy and calibrated error/latency distributions.
+
 Start with one well-covered character/matchup pilot. Validate reaction delay, execution error,
 option diversity, DI/SDI/tech choices, recovery, and punish behavior before expanding character
 coverage. Use a scripted safety layer for recovery and invalid states because replay imitation alone
