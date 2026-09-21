@@ -58,6 +58,10 @@ std::string format_search_duration(uint32_t ticks);
 // Only transition/failure phases that must suppress guest input force global capture. Returning to
 // Training lands on its character-select scene, where the player must be able to continue.
 bool phase_forces_input_capture(Phase phase);
+// The return notice is useful only while Melee is leaving the online scene. Once Training's
+// character select is active it must disappear, even though field restoration remains pending
+// until the Training match minor settles.
+bool phase_shows_return_overlay(Phase phase, bool in_practice);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice

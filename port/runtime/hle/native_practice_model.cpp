@@ -138,6 +138,10 @@ bool phase_forces_input_capture(Phase phase) {
   return phase == Phase::Handoff || phase == Phase::Failure;
 }
 
+bool phase_shows_return_overlay(Phase phase, bool in_practice) {
+  return phase == Phase::ReturningToPractice && !in_practice;
+}
+
 const char* phase_name(Phase phase) {
   switch (phase) {
     case Phase::Idle: return "Idle";

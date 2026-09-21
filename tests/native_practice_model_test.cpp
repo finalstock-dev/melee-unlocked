@@ -40,6 +40,9 @@ int main() {
   CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::InMatch));
   CHECK(slippi::native_practice::phase_forces_input_capture(Phase::Failure));
   CHECK(!slippi::native_practice::phase_forces_input_capture(Phase::ReturningToPractice));
+  CHECK(slippi::native_practice::phase_shows_return_overlay(Phase::ReturningToPractice, false));
+  CHECK(!slippi::native_practice::phase_shows_return_overlay(Phase::ReturningToPractice, true));
+  CHECK(!slippi::native_practice::phase_shows_return_overlay(Phase::Failure, false));
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

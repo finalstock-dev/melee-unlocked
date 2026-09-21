@@ -1681,7 +1681,8 @@ static void draw_native_practice(SettingsState& state,
     return;
   }
 
-  if (practice.phase == Phase::ReturningToPractice) {
+  if (slippi::native_practice::phase_shows_return_overlay(practice.phase,
+                                                          practice.in_practice)) {
     ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowBgAlpha(0.88f);
     ImGui::Begin("##native_practice_return", nullptr,
