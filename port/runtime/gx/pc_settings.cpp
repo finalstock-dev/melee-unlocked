@@ -1752,8 +1752,8 @@ static void draw_native_practice(SettingsState& state,
   ImGui::TextUnformatted("Tab or Esc: return to the game");
   ImGui::Separator();
 
-  ImGui::BeginDisabled();
-  ImGui::Button("Ranked", ImVec2(126, 32));
+  ImGui::BeginDisabled(!practice.in_practice);
+  const bool start_ranked = ImGui::Button("Ranked", ImVec2(126, 32));
   ImGui::EndDisabled();
   ImGui::SameLine();
   ImGui::BeginDisabled(!practice.in_practice);
@@ -1761,8 +1761,17 @@ static void draw_native_practice(SettingsState& state,
   ImGui::EndDisabled();
   ImGui::SameLine();
   if (ImGui::Button("Direct", ImVec2(126, 32))) state.practice_focus_code = true;
-  ImGui::TextDisabled("Ranked is not enabled. Unranked starts immediately; Direct uses a code.");
+  ImGui::TextDisabled("Ranked and Unranked start immediately; Direct uses a code.");
   ImGui::Separator();
+
+  if (start_ranked && practice.in_practice) {
+    state.practice_error[0] = 0;
+    slippi::native_practice::submit_start_ranked();
+    state.practice_open = false;
+    state.practice_release_capture = true;
+    ImGui::End();
+    return;
+  }
 
   if (start_unranked && practice.in_practice) {
     state.practice_error[0] = 0;

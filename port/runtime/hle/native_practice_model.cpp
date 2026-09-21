@@ -28,7 +28,10 @@ Decision Lifecycle::matchmaking_result(bool connection_success, bool local_ready
                                        const std::string& error) {
   if (phase_ != Phase::Searching) return {};
   if (!error.empty()) return fail(error, true);
-  if (!connection_success || !local_ready || !remote_ready) return {};
+  // Once transport is connected, hand ownership to the ordinary online CSS. It performs its own
+  // selection polling and scene routing; waiting here until both peers are ready races that flow
+  // and can skip the CSS entirely.
+  if (!connection_success) return {};
 
   phase_ = Phase::Handoff;
   left_practice_ = true;
@@ -143,7 +146,7 @@ bool phase_shows_return_overlay(Phase phase, bool in_practice) {
 }
 
 bool phase_owns_online_mode(Phase phase) {
-  return phase == Phase::Handoff || phase == Phase::OnlineFlow;
+  return phase == Phase::Handoff;
 }
 
 const char* phase_name(Phase phase) {

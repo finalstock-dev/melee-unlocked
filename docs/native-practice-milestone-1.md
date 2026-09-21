@@ -11,20 +11,20 @@ the fork's existing GPL-2.0-or-later Slippi interfaces and the observed high-lev
 
 ## Scope delivered
 
-This milestone implements the Direct-code vertical slice and native Unranked search:
+This milestone implements native Ranked and Unranked search plus the Direct-code vertical slice:
 
 - Tab opens a native ImGui matchmaking popup in normal menus and Training.
 - Direct accepts keyboard typing and clipboard paste. Input is normalized to uppercase `NAME#digits` and limited to Slippi's 18-byte field.
 - Controller navigation follows the human controller port found in Training. The UI waits for a neutral controller before accepting buttons.
-- Starting Direct or Unranked captures only the relevant Training configuration fields, starts the existing Slippi matchmaking implementation, and polls its side-effecting match state once per 60 Hz simulation tick.
+- Starting Ranked, Unranked, or Direct captures only the relevant Training configuration fields, starts the existing Slippi matchmaking implementation, and polls its side-effecting match state once per 60 Hz simulation tick.
 - Unranked carries the Training character/costume into Slippi's existing fixed-rules matchmaking flow. Direct continues to use a typed or pasted connect code.
 - Closing the popup releases Training while search continues. A passive status indicator remains, shows elapsed search time from the 60 Hz coordinator clock, and Tab reopens Cancel.
-- Once both peers are ready, input is captured briefly, `Match found / Connecting...` appears, and the guest enters major scene 8 (the normal Slippi online flow). The overlay clears as soon as that scene is active, before the first online gameplay frame.
+- Once transport connects, input is captured briefly, `Match found / Connecting...` appears, and the guest enters major scene 8 at its normal online CSS. Slippi owns selection polling and all later scene routing from that point. The overlay clears as soon as that scene is active, before the first online gameplay frame.
 - Cancel invokes the existing Slippi connection cleanup. A 90-second timeout also cleans up.
 - A pre-game disconnect shows `Disconnected — Press A to continue`. A held A is rejected until the selected controller is neutral and A is pressed again. The coordinator then requests Training and reapplies the saved character, costume, port, player/CPU kinds, CPU level, stage field, and percentages instead of restoring RAM. The transient return notice clears when Training character select appears; restoration remains armed until Training gameplay settles.
 - Once online gameplay reaches frame 1, ordinary Slippi reporting, disconnect, savestate, and set-flow code remains the owner. The practice coordinator does not replace it.
 
-Ranked remains visible but disabled. Unranked is enabled but requires Windows/public-matchmaking validation; unavailable peer testing must remain reported as unrun rather than inferred from the shared Slippi path.
+Ranked and Unranked are enabled but require Windows/public-matchmaking validation; unavailable peer testing must remain reported as unrun rather than inferred from the shared Slippi path.
 
 ## Architecture and invariants
 

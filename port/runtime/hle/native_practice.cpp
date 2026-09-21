@@ -17,14 +17,15 @@ constexpr uint32_t kSceneState = 0x80479D30;
 constexpr uint32_t kMinorSceneControl = 0x80479D58;
 constexpr uint8_t kOnlineMajor = 8;
 constexpr uint8_t kTrainingMajor = 0x1C;
-constexpr uint32_t kOnlineMode = 0x804DAFA0;
+// OFST_R13_ONLINE_MODE is -0x5060 from Melee's r13 base (0x804DB6A0).
+constexpr uint32_t kOnlineMode = 0x804D6640;
 constexpr uint32_t kEventBackup = 0x8045A6C0 + 0x532;
 constexpr uint32_t kPlayerSlots = 0x80453080;
 constexpr uint32_t kPlayerStride = 0xE90;
 constexpr uint32_t kMatchStage = 0x8046B6A0 + 0x24C8 + 0x0E;
 constexpr uint32_t kSearchTimeoutTicks = 60 * 90;
 
-enum class CommandKind { StartUnranked, StartDirect, Cancel, AcknowledgeFailure };
+enum class CommandKind { StartRanked, StartUnranked, StartDirect, Cancel, AcknowledgeFailure };
 struct Command { CommandKind kind; std::string text; };
 
 struct SavedPlayer {
@@ -190,6 +191,9 @@ void start_search(MatchMode mode, const std::string& connect_code) {
 
 void process_command(Command command) {
   switch (command.kind) {
+    case CommandKind::StartRanked:
+      start_search(MatchMode::Ranked, {});
+      break;
     case CommandKind::StartUnranked:
       start_search(MatchMode::Unranked, {});
       break;
@@ -262,6 +266,11 @@ void submit_start_direct(const std::string& connect_code) {
   g_commands.push_back({CommandKind::StartDirect, connect_code});
 }
 
+void submit_start_ranked() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  g_commands.push_back({CommandKind::StartRanked, {}});
+}
+
 void submit_start_unranked() {
   std::lock_guard<std::mutex> lock(g_mutex);
   g_commands.push_back({CommandKind::StartUnranked, {}});
@@ -286,10 +295,8 @@ void tick() {
   for (Command& command : commands) process_command(std::move(command));
 
   // Entering major 8 directly skips the title-menu option handler that normally owns this byte.
-  // Training's scene teardown can restore the underlying vanilla .sdata2 value (zero, Ranked)
-  // after request_online_handoff wrote it. Keep the native selection authoritative through the
-  // short CSS handoff so CSSSceneDecide takes Unranked to the splash/match instead of Ranked's
-  // GameSetup/stage-strike minor.
+  // Keep the native selection authoritative during the scene transition, then leave every later
+  // CSS decision to Slippi's normal online flow.
   if (phase_owns_online_mode(g_lifecycle.phase()) && g_match_mode != MatchMode::None) {
     const uint8_t expected = (uint8_t)g_match_mode;
     const uint8_t actual = host::rd8(kOnlineMode);
@@ -355,6 +362,7 @@ bool cosmetic_profile_locked() { return snapshot().cosmetic_profile_locked; }
 
 const char* match_mode_name(MatchMode mode) {
   switch (mode) {
+    case MatchMode::Ranked: return "Ranked";
     case MatchMode::Unranked: return "Unranked";
     case MatchMode::Direct: return "Direct";
     case MatchMode::None: return "matchmaking";

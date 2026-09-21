@@ -10,8 +10,8 @@
 
 namespace slippi::native_practice {
 
-// Values intentionally match Slippi's OnlinePlayMode for the two native-practice modes.
-enum class MatchMode : uint8_t { None = 0xFF, Unranked = 1, Direct = 2 };
+// Values intentionally match Slippi's OnlinePlayMode.
+enum class MatchMode : uint8_t { None = 0xFF, Ranked = 0, Unranked = 1, Direct = 2 };
 
 struct Snapshot {
   Phase phase = Phase::Idle;
@@ -30,6 +30,7 @@ struct Snapshot {
 };
 
 Snapshot snapshot();
+void submit_start_ranked();
 void submit_start_unranked();
 void submit_start_direct(const std::string& connect_code);
 void submit_cancel();

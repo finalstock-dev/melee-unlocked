@@ -8,6 +8,7 @@ using slippi::native_practice::Lifecycle;
 using slippi::native_practice::MatchMode;
 using slippi::native_practice::Phase;
 
+static_assert((int)MatchMode::Ranked == 0, "Ranked must match Slippi's online-mode value");
 static_assert((int)MatchMode::Unranked == 1, "Unranked must match Slippi's online-mode value");
 static_assert((int)MatchMode::Direct == 2, "Direct must match Slippi's online-mode value");
 
@@ -45,7 +46,7 @@ int main() {
   CHECK(!slippi::native_practice::phase_shows_return_overlay(Phase::Failure, false));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Searching));
   CHECK(slippi::native_practice::phase_owns_online_mode(Phase::Handoff));
-  CHECK(slippi::native_practice::phase_owns_online_mode(Phase::OnlineFlow));
+  CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::OnlineFlow));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::InMatch));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Failure));
 
@@ -54,7 +55,7 @@ int main() {
   CHECK(!lifecycle.begin_search());
   auto d = lifecycle.matchmaking_result(false, true, false, {});
   CHECK(!d.request_online_handoff && lifecycle.phase() == Phase::Searching);
-  d = lifecycle.matchmaking_result(true, true, true, {});
+  d = lifecycle.matchmaking_result(true, true, false, {});
   CHECK(d.request_online_handoff && lifecycle.phase() == Phase::Handoff && lifecycle.left_practice());
   lifecycle.observe_session(true, true, false);
   CHECK(lifecycle.phase() == Phase::OnlineFlow);
