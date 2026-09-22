@@ -12,12 +12,16 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - name: Restore generated NTSC 1.02 translation
         shell: pwsh
-        run: Copy-Item port/generated.before-0563 port/generated -Recurse
+        run: |
+          Copy-Item port/generated.before-0563 port/generated -Recurse
+          New-Item -ItemType Junction -Path melee -Target (Resolve-Path sourceport/extern/melee) | Out-Null
       - name: Configure
         shell: pwsh
         run: cmake -S . -B build-video -G "Visual Studio 17 2022" -A x64 -DMELEE_BUILD_EXPERIMENTAL_PORT=ON
