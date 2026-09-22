@@ -66,9 +66,14 @@ bool phase_shows_return_overlay(Phase phase, bool in_practice);
 // enters that major scene without passing through the title-menu option that initializes it, so
 // the coordinator owns the byte only until the online scene has taken over.
 bool phase_owns_online_mode(Phase phase);
-// The popup is available throughout offline Melee. An active native search keeps it available so
-// the player can cancel, but replays and any pre-existing/playing online session own Tab instead.
-bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bool session_active);
+// Matchmaking may begin only while an offline match is actively running, ensuring that the
+// coordinator can capture the player's real fighter. An existing search keeps Tab available for
+// cancellation even if that offline match ends while the search is still running.
+bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bool session_active,
+                               bool offline_gameplay);
+// Matches the runtime's established scene classification for offline gameplay. CSS, stage select,
+// results/menu shells, Slippi online, and replay playback are gated separately.
+bool is_offline_gameplay_scene(uint8_t major, uint8_t minor);
 // Direct normally initializes these fields when Start is pressed on its CSS. Native matchmaking
 // bypasses that input path and must perform the initialization before the first CSS handoff.
 bool mode_needs_direct_first_match_reset(uint8_t online_mode);

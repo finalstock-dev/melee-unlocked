@@ -13,8 +13,10 @@ the fork's existing GPL-2.0-or-later Slippi interfaces and the observed high-lev
 
 This milestone implements native Ranked and Unranked search plus the Direct-code vertical slice:
 
-- Tab opens a native ImGui matchmaking popup throughout offline menus and offline gameplay. Replay
-  playback and the normal Slippi online scene retain ownership of their input and flow.
+- Tab opens the native ImGui matchmaking popup only during active offline gameplay, including
+  Training, Events, and Versus. This guarantees a real current fighter can be carried into online
+  CSS; offline menus, character/stage select, replay playback, and normal Slippi online scenes keep
+  ownership of their input and flow. Once a search starts, Tab remains available for cancellation.
 - Direct accepts keyboard typing and clipboard paste. Input is normalized to uppercase `NAME#digits` and limited to Slippi's 18-byte field.
 - Controller navigation follows the human controller port found in Training. The UI waits for a neutral controller before accepting buttons.
 - Starting Ranked, Unranked, or Direct captures only the relevant Training configuration fields, starts the existing Slippi matchmaking implementation, and polls its side-effecting match state once per 60 Hz simulation tick.

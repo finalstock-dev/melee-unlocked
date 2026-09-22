@@ -49,11 +49,19 @@ int main() {
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::OnlineFlow));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::InMatch));
   CHECK(!slippi::native_practice::phase_owns_online_mode(Phase::Failure));
-  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, false));
-  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, true, false, false));
-  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, true, true));
-  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, true));
-  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Searching, false, false, true));
+  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, false, true));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, false, false));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, true, false, false, true));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, true, true, true));
+  CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, true, true));
+  CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Searching, false, false, true, false));
+  CHECK(!slippi::native_practice::is_offline_gameplay_scene(0x01, 0x02));  // menu shell
+  CHECK(!slippi::native_practice::is_offline_gameplay_scene(0x02, 0x00));  // CSS
+  CHECK(!slippi::native_practice::is_offline_gameplay_scene(0x02, 0x01));  // stage select
+  CHECK(slippi::native_practice::is_offline_gameplay_scene(0x02, 0x02));   // versus
+  CHECK(slippi::native_practice::is_offline_gameplay_scene(0x12, 0x02));   // event match
+  CHECK(slippi::native_practice::is_offline_gameplay_scene(0x1C, 0x02));   // training
+  CHECK(!slippi::native_practice::is_offline_gameplay_scene(0x08, 0x02));  // online
   CHECK(!slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Ranked));
   CHECK(!slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Unranked));
   CHECK(slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Direct));

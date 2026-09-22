@@ -70,10 +70,12 @@ Phase g_logged_phase = Phase::Idle;
 
 bool is_training() { return host::rd8(kSceneState) == kTrainingMajor; }
 bool is_online_scene() { return host::rd8(kSceneState) == kOnlineMajor; }
+bool is_offline_gameplay() {
+  return is_offline_gameplay_scene(host::rd8(kSceneState), host::rd8(kSceneState + 3));
+}
 
 PracticeConfig capture_practice() {
   PracticeConfig out;
-  out.valid = true;
   out.stage = host::rd16(kMatchStage);
   bool found_human = false;
   for (int i = 0; i < 4; ++i) {
@@ -94,6 +96,7 @@ PracticeConfig capture_practice() {
       out.controller_port = p.controller < 4 ? p.controller : 0;
     }
   }
+  out.valid = found_human;
   return out;
 }
 
@@ -180,18 +183,16 @@ void start_search(MatchMode mode, const std::string& connect_code) {
   if (slippi::playback::enabled()) { fail("Matchmaking is unavailable during replay playback", false); return; }
   if (is_online_scene()) { fail("Matchmaking is already using the online scene", false); return; }
   if (slippi::online::session_mode() >= 0) { fail("An online session is already active", false); return; }
+  if (!is_offline_gameplay()) { fail("Start matchmaking during an offline match", false); return; }
 
   g_origin_major = host::rd8(kSceneState);
   g_restore_training = is_training();
   g_practice = capture_practice();
+  if (!g_practice.valid) { fail("No active human fighter was found", false); return; }
   SavedPlayer& player = g_practice.players[g_practice.local_slot];
-  // Menus do not always have an active player slot. Use Fox/color 0 as a safe CSS seed in that
-  // case; an active offline fighter or Training selection is carried across when available.
   if (!player.active || player.character >= 26) {
-    player.character = 2;
-    player.costume = 0;
-    player.controller = 0;
-    g_practice.controller_port = 0;
+    fail("The active fighter cannot be used for online matchmaking", false);
+    return;
   }
   g_match_mode = mode;
   g_connect_code = connect_code;
@@ -255,8 +256,11 @@ void publish_snapshot() {
   const bool playback = slippi::playback::enabled();
   const bool online_match = slippi::online::is_online_match() || is_online_scene();
   const bool session_active = slippi::online::session_mode() >= 0;
-  out.tab_available = matchmaking_tab_available(out.phase, playback, online_match, session_active);
-  out.can_start = out.phase == Phase::Idle && !playback && !online_match && !session_active;
+  const bool offline_gameplay = is_offline_gameplay();
+  out.tab_available = matchmaking_tab_available(out.phase, playback, online_match, session_active,
+                                                offline_gameplay);
+  out.can_start = out.phase == Phase::Idle && !playback && !online_match && !session_active &&
+                  offline_gameplay;
   out.cosmetic_profile_locked = out.phase == Phase::Searching || out.phase == Phase::Handoff ||
                                 out.phase == Phase::OnlineFlow || out.phase == Phase::InMatch;
   out.controller_port = g_practice.valid ? g_practice.controller_port : 0;
