@@ -33,6 +33,7 @@
 #include "gx_dlss5.h"
 #endif
 #include "texture_pack.h"
+#include "video_background.h"
 #include "host.h"
 #include "window.h"   // fullscreen toggling lives on the window, not the settings panel
 #ifdef GX_PC_SETTINGS
@@ -405,6 +406,8 @@ class D3D12Backend : public Backend {
   std::unordered_map<uint64_t, ComPtr<ID3DBlob>> vs_blobs_, ps_blobs_;
   std::unordered_map<PsoKey, ComPtr<ID3D12PipelineState>, PsoKeyHash> psos_;
   std::unordered_map<uint64_t, TextureEntry> textures_;       // key: hash of (addr, dims, format, data, tlut)
+  TextureEntry video_textures_[2][FRAME_SLOTS];
+  uint64_t video_serial_[2][FRAME_SLOTS]{};
   std::unordered_map<uint32_t, TextureEntry> efb_copies_;     // key: guest dest address
   std::unordered_map<SamplerSetKey, uint32_t, SamplerSetHash> sampler_sets_;  // -> heap slot base
   uint32_t sampler_slots_used_ = 0;
@@ -1112,6 +1115,66 @@ ID3D12Resource* D3D12Backend::get_texture(const TextureRef& t, uint32_t* w, uint
     return ec->second.resource.Get();
   }
   if (!t.data) return nullptr;
+  // One dynamic resource per menu and frame-in-flight slot. The slot fence has completed before
+  // this function runs, so updating this slot cannot overwrite pixels an older GPU frame samples.
+  std::string video_name;
+  if (video_bg::wants_texture_names()) {
+    video_name = texpack::base_name(t, *t.data);
+    int video_slot = -1;
+    std::shared_ptr<const video_bg::Frame> frame =
+        video_bg::lookup(video_name, t.width, t.height, &video_slot);
+    if (frame && video_slot >= 0 && video_slot < 2 && !frame->bgra.empty()) {
+      TextureEntry& e = video_textures_[video_slot][slot_];
+      bool created = false;
+      if (!e.resource || e.width != frame->width || e.height != frame->height) {
+        e = TextureEntry{};
+        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+        D3D12_RESOURCE_DESC rd{};
+        rd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        rd.Width = frame->width; rd.Height = frame->height;
+        rd.DepthOrArraySize = 1; rd.MipLevels = 1;
+        rd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; rd.SampleDesc.Count = 1;
+        check(device_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+              D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&e.resource)), "video texture");
+        e.width = frame->width; e.height = frame->height; e.levels = 1;
+        video_serial_[video_slot][slot_] = 0;
+        created = true;
+      }
+      if (video_serial_[video_slot][slot_] != frame->serial) {
+        if (!created) {
+          D3D12_RESOURCE_BARRIER to_copy{};
+          to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+          to_copy.Transition = {e.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                D3D12_RESOURCE_STATE_COPY_DEST};
+          list_->ResourceBarrier(1, &to_copy);
+        }
+        const uint32_t pitch = (frame->width * 4 + 255) & ~255u;
+        uint8_t* cpu = nullptr; D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;
+        upload_ring_.alloc((size_t)pitch * frame->height, 512, &cpu, &gpu);
+        for (uint32_t y = 0; y < frame->height; ++y)
+          std::memcpy(cpu + (size_t)y * pitch,
+                      frame->bgra.data() + (size_t)y * frame->width * 4,
+                      (size_t)frame->width * 4);
+        D3D12_TEXTURE_COPY_LOCATION dst{e.resource.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+        D3D12_TEXTURE_COPY_LOCATION src{upload_ring_.resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+        src.PlacedFootprint.Offset = gpu - upload_ring_.resource()->GetGPUVirtualAddress();
+        src.PlacedFootprint.Footprint = {DXGI_FORMAT_B8G8R8A8_UNORM, frame->width,
+                                        frame->height, 1, pitch};
+        list_->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        D3D12_RESOURCE_BARRIER to_sample{};
+        to_sample.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        to_sample.Transition = {e.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                D3D12_RESOURCE_STATE_COPY_DEST,
+                                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+        list_->ResourceBarrier(1, &to_sample);
+        video_serial_[video_slot][slot_] = frame->serial;
+      }
+      e.last_used = frame_counter_;
+      *w = e.width; *h = e.height;
+      return e.resource.Get();
+    }
+  }
   const uint8_t* src = t.data->image.data();
   uint32_t lw = t.width, lh = t.height;
   const uint32_t meta[] = {t.width, t.height, t.format, t.mip_levels, t.tlut_format};
@@ -1125,7 +1188,7 @@ ID3D12Resource* D3D12Backend::get_texture(const TextureRef& t, uint32_t* w, uint
   std::string pack_name;
   std::unique_ptr<texpack::Replacement> replacement;
   if (texpack::enabled() || texpack::dumping()) {
-    pack_name = texpack::base_name(t, *t.data);
+    pack_name = video_name.empty() ? texpack::base_name(t, *t.data) : video_name;
     if (texpack::enabled() && texpack::has(pack_name) && !texpack::ready(pack_name)) {
       // Not decoded yet: draw the original now and load the replacement in the background.
       texpack::request(pack_name);
@@ -1892,6 +1955,8 @@ static void dump_frame(const Frame& frame, const std::string& path) {
 }
 
 void D3D12Backend::submit_frame(const Frame& frame, const DrawMatrices* overrides) {
+  video_bg::set_enabled(opts_.video_backgrounds);
+  video_bg::begin_frame(frame.scene_major, frame.scene_minor);
   in_match_ = frame_in_match(frame);
   widenable_scene_ = frame_has_widenable_scene(frame);
   integrate_compiled_psos();

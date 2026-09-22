@@ -46,6 +46,7 @@
 #include "gx_shader.h"
 #include "gx_texture.h"
 #include "texture_pack.h"
+#include "video_background.h"
 #include "host.h"
 #include "window.h"
 #ifdef GX_PC_SETTINGS
@@ -371,6 +372,8 @@ class D3D11Backend : public Backend {
   std::unordered_map<uint32_t, ComPtr<ID3D11RasterizerState>> raster_states_;
   std::unordered_map<SamplerKey, ComPtr<ID3D11SamplerState>, SamplerKeyHash> samplers_;
   std::unordered_map<uint64_t, TextureEntry> textures_;
+  TextureEntry video_textures_[2];
+  uint64_t video_serial_[2]{};
   std::unordered_map<uint32_t, TextureEntry> efb_copies_;
   // Diagnostic for the Fountain of Dreams reflection, which exists only as an EFB copy: the stage
   // renders a mirrored camera pass, copies it into an 80x60 image, and the water samples that
@@ -985,6 +988,41 @@ TextureEntry* D3D11Backend::get_texture(const TextureRef& t) {
   // fallback below decodes guest RAM, which for a render target holds nothing the GPU ever wrote.
   if (copy_dests_.count(t.addr)) ++g_efb_tex_miss;
   if (!t.data) return nullptr;
+  // Dynamic menu video is checked before the immutable texture cache. A target may be learned
+  // after the vanilla texture was cached, and subsequent frames still need to switch immediately.
+  std::string video_name;
+  if (video_bg::wants_texture_names()) {
+    video_name = texpack::base_name(t, *t.data);
+    int video_slot = -1;
+    std::shared_ptr<const video_bg::Frame> frame =
+        video_bg::lookup(video_name, t.width, t.height, &video_slot);
+    if (frame && video_slot >= 0 && video_slot < 2 && !frame->bgra.empty()) {
+      TextureEntry& e = video_textures_[video_slot];
+      if (!e.resource || e.width != frame->width || e.height != frame->height) {
+        e = TextureEntry{};
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = frame->width; td.Height = frame->height; td.MipLevels = 1; td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_B8G8R8A8_UNORM; td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(device_->CreateTexture2D(&td, nullptr, &e.resource)) ||
+            FAILED(device_->CreateShaderResourceView(e.resource.Get(), nullptr, &e.srv))) {
+          host::log("video backgrounds: d3d11 texture creation failed (%ux%u)",
+                    frame->width, frame->height);
+          e = TextureEntry{};
+          return nullptr;
+        }
+        e.width = frame->width; e.height = frame->height; e.levels = 1;
+        video_serial_[video_slot] = 0;
+      }
+      if (video_serial_[video_slot] != frame->serial) {
+        context_->UpdateSubresource(e.resource.Get(), 0, nullptr, frame->bgra.data(),
+                                    frame->width * 4, 0);
+        video_serial_[video_slot] = frame->serial;
+      }
+      e.last_used = frame_counter_;
+      return &e;
+    }
+  }
   const uint32_t meta[] = {t.width, t.height, t.format, t.mip_levels, t.tlut_format};
   uint64_t key = t.data->hash ^ hash_bytes(meta, sizeof meta);
   auto it = textures_.find(key);
@@ -998,7 +1036,7 @@ TextureEntry* D3D11Backend::get_texture(const TextureRef& t) {
   std::string pack_name;
   std::unique_ptr<texpack::Replacement> replacement;
   if (texpack::enabled() || texpack::dumping()) {
-    pack_name = texpack::base_name(t, *t.data);
+    pack_name = video_name.empty() ? texpack::base_name(t, *t.data) : video_name;
     if (texpack::enabled()) {
       replacement = texpack::load(pack_name, replacement_bytes_ < replacement_budget_
                                                  ? replacement_budget_ - replacement_bytes_ : 0);
@@ -1383,6 +1421,8 @@ void D3D11Backend::flush_captures() {
 
 // ---------------------------------------------------------------- frame
 void D3D11Backend::submit_frame(const Frame& frame, const DrawMatrices* overrides) {
+  video_bg::set_enabled(opts_.video_backgrounds);
+  video_bg::begin_frame(frame.scene_major, frame.scene_minor);
   widenable_scene_ = frame_has_widenable_scene(frame);
   integrate_compiled_pipelines();
   if (opts_.anisotropy != anisotropy_applied_) { anisotropy_applied_ = opts_.anisotropy; samplers_.clear(); reset_bound(); }

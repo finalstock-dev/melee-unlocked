@@ -1,0 +1,42 @@
+name: Video background test build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/menu-video-backgrounds]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows-release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build-video -G "Visual Studio 17 2022" -A x64 -DMELEE_BUILD_EXPERIMENTAL_PORT=ON
+      - name: Build game and tests
+        shell: pwsh
+        run: cmake --build build-video --config Release --target melee_port --parallel
+      - name: Run native tests
+        shell: pwsh
+        run: ctest --test-dir build-video -C Release --output-on-failure
+      - name: Package test executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          Copy-Item build-video/port/Release/melee_port.exe artifact/
+          Set-Content artifact/README.txt @'
+          Put melee_port.exe into your existing Melee Unlocked test folder.
+          Open F1 > Video > Animated menu backgrounds > Open folder.
+          Add H.264 MP4 files named css.mp4 and/or sss.mp4, then visit each screen.
+          Keep your clean NTSC 1.02 ISO local. This artifact contains no game data.
+          '@
+      - uses: actions/upload-artifact@v4
+        with:
+          name: melee-unlocked-video-background-test
+          path: artifact
+          if-no-files-found: error

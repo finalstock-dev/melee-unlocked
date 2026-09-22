@@ -138,7 +138,7 @@ target_include_directories(runtime PUBLIC runtime/ppc runtime/host runtime/hle r
 target_compile_features(runtime PUBLIC cxx_std_17)
 target_compile_options(runtime PRIVATE /EHsc ${MELEE_ARCH_FLAG} /fp:precise /W3)
 target_compile_definitions(runtime PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING)
-target_link_libraries(runtime PUBLIC native_animation port_enet port_libusb bcrypt d3d12 d3d11 dxgi d3dcompiler xinput9_1_0 winmm user32 gdi32 setupapi winusb hid)
+target_link_libraries(runtime PUBLIC native_animation port_enet port_libusb bcrypt d3d12 d3d11 dxgi d3dcompiler xinput9_1_0 winmm user32 gdi32 setupapi winusb hid mfplat mfreadwrite mfuuid ole32 shell32)
 
 # WIN32: no console window when the game is double-clicked or started from the launcher. Command-line
 # use still works, because main() reattaches to a parent console when there is one (see app/main.cpp).
