@@ -22,6 +22,9 @@ jobs:
         run: |
           Copy-Item port/generated.before-0563 port/generated -Recurse
           New-Item -ItemType Junction -Path melee -Target (Resolve-Path sourceport/extern/melee) | Out-Null
+          # The public tree has Streamline headers/import libs but not NVIDIA's redistributable DLLs.
+          # Keep this standalone test package honest instead of failing in the post-build copy step.
+          Rename-Item port/third_party/streamline/include/sl.h sl.h.ci-disabled
       - name: Configure
         shell: pwsh
         run: cmake -S . -B build-video -G "Visual Studio 17 2022" -A x64 -DMELEE_BUILD_EXPERIMENTAL_PORT=ON
@@ -40,6 +43,7 @@ jobs:
           Put melee_port.exe into your existing Melee Unlocked test folder.
           Open F1 > Video > Animated menu backgrounds > Open folder.
           Add H.264 MP4 files named css.mp4 and/or sss.mp4, then visit each screen.
+          This CI test package omits optional DLSS/XeSS vendor runtimes that are not in the public repository.
           Keep your clean NTSC 1.02 ISO local. This artifact contains no game data.
           '@
       - uses: actions/upload-artifact@v4
