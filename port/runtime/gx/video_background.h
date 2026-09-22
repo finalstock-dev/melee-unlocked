@@ -16,6 +16,13 @@ struct Frame {
   std::vector<uint8_t> bgra;
 };
 
+struct ObservedTexture {
+  std::string name;
+  uint32_t width = 0, height = 0;
+  unsigned observations = 0, distinct_frames = 0;
+  uint64_t score = 0;
+};
+
 // Called once before a captured GX frame is submitted. CSS is minor scene 0 and SSS is minor 1
 // for modes which lead into a match; Slippi online's CSS is major 08, minor 0.
 void begin_frame(uint8_t scene_major, uint8_t scene_minor);
@@ -36,5 +43,9 @@ bool enabled();
 void open_folder();
 void relearn(int slot);  // 0 CSS, 1 SSS
 std::string status(int slot);
+std::string target(int slot);
+std::vector<ObservedTexture> observed_textures(int slot);
+bool choose_target(int slot, const std::string& name);
+void report_backend_failure(int slot, const std::string& message);
 
 }  // namespace gx::video_bg

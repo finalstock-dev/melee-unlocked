@@ -2,6 +2,7 @@
 // Windows Media Foundation Source Reader. The ISO and guest simulation are never modified.
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_background.h"
+#include "video_background_learning.h"
 #include "../host/host.h"
 #include <windows.h>
 #include <mfapi.h>
@@ -37,8 +38,11 @@ std::filesystem::path exe_directory() {
 }
 
 struct Candidate {
-  uint64_t area = 0;
+  uint32_t width = 0, height = 0;
   unsigned observations = 0;
+  unsigned distinct_frames = 0;
+  unsigned last_learning_frame = ~0u;
+  bool persistence_logged = false;
 };
 
 class Decoder {
@@ -50,6 +54,10 @@ class Decoder {
     stop();
     path_ = path;
     stopping_ = false;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      error_.clear();
+    }
     worker_ = std::thread([this] { run(); });
   }
 
@@ -226,6 +234,12 @@ struct Slot {
   std::string target;
   std::map<std::string, Candidate> candidates;
   unsigned learning_frames = 0;
+  unsigned saved_target_frames = 0;
+  unsigned candidate_logs = 0;
+  bool target_confirmed = false;
+  bool learning_failed = false;
+  bool replacement_logged = false;
+  std::string backend_error;
   Decoder decoder;
 };
 
@@ -255,12 +269,19 @@ class Manager {
   }
 
   void begin(uint8_t major, uint8_t minor) {
-    int next = -1;
-    const bool match_mode = major == 0x02 || major == 0x03 || major == 0x04 || major == 0x05 ||
-                            major == 0x0F || (major >= 0x10 && major <= 0x13) ||
-                            major == 0x1B || major == 0x1C;
-    if ((match_mode || major == 0x08) && minor == 0) next = 0;
-    else if (match_mode && minor == 1) next = 1;
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const int next = learning::scene_slot(major, minor);
+    const uint16_t scene = (uint16_t)((uint16_t)major << 8 | minor);
+    if (scene != last_scene_) {
+      last_scene_ = scene;
+      if (scene_logs_ < 64) {
+        const char* detected = next == 0 ? "CSS" : next == 1 ? "SSS" : "none";
+        host::log("video backgrounds: scene major=%02X minor=%02X detected=%s",
+                  major, minor, detected);
+        if (++scene_logs_ == 64)
+          host::log("video backgrounds: further scene diagnostics suppressed");
+      }
+    }
     active_slot_ = next;
 
     for (int i = 0; i < 2; ++i) {
@@ -277,57 +298,77 @@ class Manager {
 
     if (active_slot_ >= 0) {
       Slot& s = slots_[active_slot_];
-      if (s.target.empty() && std::filesystem::is_regular_file(s.video_path)) {
-        ++s.learning_frames;
-        if (s.learning_frames >= 30 && !s.candidates.empty()) {
-          auto best = std::max_element(s.candidates.begin(), s.candidates.end(), [](const auto& a, const auto& b) {
-            if (a.second.area != b.second.area) return a.second.area < b.second.area;
-            return a.second.observations < b.second.observations;
-          });
-          s.target = best->first;
-          std::ofstream output(s.target_path, std::ios::trunc);
-          output << s.target << "\n";
-          host::log("video backgrounds: learned %ls target %s", s.stem, s.target.c_str());
-          s.candidates.clear();
+      if (!s.target.empty() && !s.target_confirmed && has_video_[active_slot_]) {
+        if (++s.saved_target_frames >= learning::kSavedTargetTimeoutFrames) {
+          host::log("video backgrounds: saved %ls target %s was not observed and is stale; relearning",
+                    s.stem, s.target.c_str());
+          s.target.clear();
+          s.saved_target_frames = 0;
+          s.learning_frames = 0;
+          std::error_code ec;
+          std::filesystem::remove(s.target_path, ec);
         }
+      }
+      if (s.target.empty() && has_video_[active_slot_] && !s.learning_failed) {
+        ++s.learning_frames;
+        if (s.learning_frames == learning::kDecisionFrames)
+          try_learning(s, false);
+        if (s.learning_frames >= learning::kTimeoutFrames && s.target.empty())
+          try_learning(s, true);
       }
     }
   }
 
   bool wants_names() const {
-    return enabled_ && active_slot_ >= 0 && has_video_[active_slot_];
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return wants_names_locked();
   }
 
   std::shared_ptr<const Frame> lookup_frame(const std::string& base, uint32_t width,
                                             uint32_t height, int* out_slot) {
-    if (!wants_names()) return {};
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!wants_names_locked()) return {};
     Slot& s = slots_[active_slot_];
-    if (s.target.empty()) {
-      // Portraits are 136x188. Requiring at least 192 in both dimensions keeps them, icons and
-      // labels out of automatic selection; the menu backdrop is larger and persists every frame.
-      if (width >= 192 && height >= 192) {
-        Candidate& c = s.candidates[base];
-        c.area = std::max(c.area, (uint64_t)width * height);
-        ++c.observations;
-      }
+    if (s.target.empty() || !s.target_confirmed) record_candidate(s, base, width, height);
+    if (!s.target.empty() && base == s.target && !s.target_confirmed) {
+      s.target_confirmed = true;
+      s.saved_target_frames = 0;
+      host::log("video backgrounds: confirmed saved %ls target %s (%ux%u)",
+                s.stem, s.target.c_str(), width, height);
+    }
+    if (s.target.empty() || !s.backend_error.empty()) {
       return {};
     }
     if (base != s.target) return {};
     if (out_slot) *out_slot = active_slot_;
-    return s.decoder.frame();
+    std::shared_ptr<const Frame> decoded = s.decoder.frame();
+    if (decoded && !s.replacement_logged) {
+      s.replacement_logged = true;
+      host::log("video backgrounds: applying %ls video to %s (%ux%u video frame)",
+                s.stem, s.target.c_str(), decoded->width, decoded->height);
+    }
+    return decoded;
   }
 
   void set_enabled(bool value) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
     enabled_ = value;
     if (!enabled_) for (Slot& s : slots_) s.decoder.set_active(false);
   }
 
   void relearn_slot(int i) {
     if (i < 0 || i > 1) return;
+    std::lock_guard<std::mutex> lock(state_mutex_);
     Slot& s = slots_[i];
     s.target.clear();
     s.candidates.clear();
     s.learning_frames = 0;
+    s.saved_target_frames = 0;
+    s.candidate_logs = 0;
+    s.target_confirmed = false;
+    s.learning_failed = false;
+    s.replacement_logged = false;
+    s.backend_error.clear();
     std::error_code ec;
     std::filesystem::remove(s.target_path, ec);
     host::log("video backgrounds: %ls target cleared; visit the screen for half a second to relearn", s.stem);
@@ -335,12 +376,81 @@ class Manager {
 
   std::string slot_status(int i) const {
     if (i < 0 || i > 1) return "invalid";
+    std::lock_guard<std::mutex> lock(state_mutex_);
     const Slot& s = slots_[i];
     if (!std::filesystem::is_regular_file(s.video_path)) return "No MP4";
+    if (!enabled_) return "Disabled — vanilla background active";
     const std::string error = s.decoder.error();
     if (!error.empty()) return error;
-    if (s.target.empty()) return active_slot_ == i ? "Learning background..." : "Visit this screen to learn";
+    if (!s.backend_error.empty()) return s.backend_error + " — using vanilla";
+    if (!s.target.empty() && !s.target_confirmed)
+      return active_slot_ == i ? "Checking saved target..." : "Visit this screen to verify saved target";
+    if (s.learning_failed) {
+      return s.candidates.empty() ?
+          "Automatic learning timed out — no textures observed" :
+          "Automatic learning timed out — choose an observed texture below";
+    }
+    if (s.target.empty()) {
+      if (active_slot_ != i) return "Visit this screen to learn";
+      return "Learning background... " + std::to_string(s.learning_frames) + "/" +
+             std::to_string(learning::kTimeoutFrames) + " frames (" +
+             std::to_string(s.candidates.size()) + " textures)";
+    }
     return "Ready: " + s.target;
+  }
+
+  std::string slot_target(int i) const {
+    if (i < 0 || i > 1) return {};
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return slots_[i].target;
+  }
+
+  std::vector<ObservedTexture> observations(int i) const {
+    std::vector<ObservedTexture> result;
+    if (i < 0 || i > 1) return result;
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    const Slot& s = slots_[i];
+    for (const auto& item : s.candidates) {
+      const Candidate& c = item.second;
+      result.push_back({item.first, c.width, c.height, c.observations, c.distinct_frames,
+                        learning::candidate_score(c.width, c.height, c.distinct_frames,
+                                                  c.observations)});
+    }
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+      if (a.score != b.score) return a.score > b.score;
+      if (a.distinct_frames != b.distinct_frames) return a.distinct_frames > b.distinct_frames;
+      return a.name < b.name;
+    });
+    return result;
+  }
+
+  bool select_target(int i, const std::string& name) {
+    if (i < 0 || i > 1) return false;
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    Slot& s = slots_[i];
+    auto found = s.candidates.find(name);
+    if (found == s.candidates.end()) return false;
+    s.target = name;
+    s.target_confirmed = true;
+    s.learning_failed = false;
+    s.replacement_logged = false;
+    s.backend_error.clear();
+    s.saved_target_frames = 0;
+    write_target(s);
+    host::log("video backgrounds: manually selected %ls target %s (%ux%u, observations=%u, frames=%u)",
+              s.stem, name.c_str(), found->second.width, found->second.height,
+              found->second.observations, found->second.distinct_frames);
+    return true;
+  }
+
+  void backend_failure(int i, const std::string& message) {
+    if (i < 0 || i > 1) return;
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    Slot& s = slots_[i];
+    if (s.backend_error.empty())
+      host::log("video backgrounds: %ls backend failure: %s; using vanilla",
+                s.stem, message.c_str());
+    s.backend_error = message;
   }
 
   void open() {
@@ -348,16 +458,114 @@ class Manager {
     ShellExecuteW(nullptr, L"open", root_.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
   }
 
-  bool is_enabled() const { return enabled_; }
+  bool is_enabled() const {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    return enabled_;
+  }
 
  private:
+  bool wants_names_locked() const {
+    return learning::should_route_video(
+        enabled_, active_slot_, active_slot_ >= 0 && has_video_[active_slot_]);
+  }
+
+  static uint64_t score(const Candidate& c) {
+    return learning::candidate_score(c.width, c.height, c.distinct_frames, c.observations);
+  }
+
+  void record_candidate(Slot& s, const std::string& base, uint32_t width, uint32_t height) {
+    if (base.empty() || !width || !height || width > 4096 || height > 4096) return;
+    auto found = s.candidates.find(base);
+    if (found == s.candidates.end()) {
+      if (s.candidates.size() >= learning::kMaximumCandidates) {
+        auto weakest = std::min_element(s.candidates.begin(), s.candidates.end(),
+            [](const auto& a, const auto& b) { return score(a.second) < score(b.second); });
+        Candidate incoming{}; incoming.width = width; incoming.height = height;
+        incoming.observations = incoming.distinct_frames = 1;
+        if (weakest != s.candidates.end() && score(incoming) <= score(weakest->second)) return;
+        if (weakest != s.candidates.end()) s.candidates.erase(weakest);
+      }
+      Candidate candidate{};
+      candidate.width = width; candidate.height = height;
+      found = s.candidates.emplace(base, candidate).first;
+      if (s.candidate_logs < 24) {
+        host::log("video backgrounds: observed %ls texture %s %ux%u observations=1 frames=1",
+                  s.stem, base.c_str(), width, height);
+        ++s.candidate_logs;
+      }
+    }
+    Candidate& c = found->second;
+    c.width = width; c.height = height;
+    ++c.observations;
+    if (c.last_learning_frame != s.learning_frames) {
+      c.last_learning_frame = s.learning_frames;
+      ++c.distinct_frames;
+    }
+    if (!c.persistence_logged && c.distinct_frames == learning::kMinimumPersistentFrames &&
+        s.candidate_logs < 32) {
+      c.persistence_logged = true;
+      host::log("video backgrounds: persistent %ls candidate %s %ux%u observations=%u frames=%u score=%llu",
+                s.stem, base.c_str(), width, height, c.observations, c.distinct_frames,
+                (unsigned long long)score(c));
+      ++s.candidate_logs;
+    }
+  }
+
+  void log_best(const Slot& s, const char* reason) const {
+    std::vector<std::pair<std::string, Candidate>> ranked(s.candidates.begin(), s.candidates.end());
+    std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
+      if (score(a.second) != score(b.second)) return score(a.second) > score(b.second);
+      return a.first < b.first;
+    });
+    host::log("video backgrounds: %ls %s after %u frames; observed=%zu; best candidates follow",
+              s.stem, reason, s.learning_frames, s.candidates.size());
+    for (size_t i = 0; i < std::min<size_t>(8, ranked.size()); ++i) {
+      const Candidate& c = ranked[i].second;
+      host::log("video backgrounds: %ls candidate #%zu %s %ux%u observations=%u frames=%u score=%llu",
+                s.stem, i + 1, ranked[i].first.c_str(), c.width, c.height, c.observations,
+                c.distinct_frames, (unsigned long long)score(c));
+    }
+  }
+
+  void write_target(const Slot& s) const {
+    std::ofstream output(s.target_path, std::ios::trunc);
+    if (output) output << s.target << "\n";
+  }
+
+  void try_learning(Slot& s, bool final_attempt) {
+    log_best(s, final_attempt ? "learning timeout" : "learning checkpoint");
+    auto best = std::max_element(s.candidates.begin(), s.candidates.end(),
+        [](const auto& a, const auto& b) { return score(a.second) < score(b.second); });
+    if (best != s.candidates.end() && learning::confident(
+            best->second.width, best->second.height, best->second.distinct_frames,
+            s.learning_frames, best->second.observations)) {
+      s.target = best->first;
+      s.target_confirmed = true;
+      s.learning_failed = false;
+      write_target(s);
+      host::log("video backgrounds: learned %ls target %s %ux%u observations=%u frames=%u score=%llu",
+                s.stem, s.target.c_str(), best->second.width, best->second.height,
+                best->second.observations, best->second.distinct_frames,
+                (unsigned long long)score(best->second));
+      return;
+    }
+    if (final_attempt) {
+      s.learning_failed = true;
+      host::log("video backgrounds: %ls automatic learning timed out; choose an observed texture in PC settings",
+                s.stem);
+    }
+  }
+
   std::filesystem::path root_;
   Slot slots_[2];
+  mutable std::mutex state_mutex_;
   bool media_foundation_ = false;
   bool enabled_ = true;
   bool started_[2]{};
   bool has_video_[2]{};
   int active_slot_ = -1;
+  uint16_t last_scene_ = 0xffff;
+  unsigned scene_logs_ = 0;
 };
 
 Manager& manager() {
@@ -378,5 +586,13 @@ bool enabled() { return manager().is_enabled(); }
 void open_folder() { manager().open(); }
 void relearn(int slot) { manager().relearn_slot(slot); }
 std::string status(int slot) { return manager().slot_status(slot); }
+std::string target(int slot) { return manager().slot_target(slot); }
+std::vector<ObservedTexture> observed_textures(int slot) { return manager().observations(slot); }
+bool choose_target(int slot, const std::string& name) {
+  return manager().select_target(slot, name);
+}
+void report_backend_failure(int slot, const std::string& message) {
+  manager().backend_failure(slot, message);
+}
 
 }  // namespace gx::video_bg

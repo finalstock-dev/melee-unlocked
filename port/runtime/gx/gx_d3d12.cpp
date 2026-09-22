@@ -1134,13 +1134,23 @@ ID3D12Resource* D3D12Backend::get_texture(const TextureRef& t, uint32_t* w, uint
         rd.Width = frame->width; rd.Height = frame->height;
         rd.DepthOrArraySize = 1; rd.MipLevels = 1;
         rd.Format = DXGI_FORMAT_B8G8R8A8_UNORM; rd.SampleDesc.Count = 1;
-        check(device_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
-              D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&e.resource)), "video texture");
+        const HRESULT hr = device_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd,
+              D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&e.resource));
+        if (FAILED(hr)) {
+          char message[96];
+          std::snprintf(message, sizeof message, "D3D12 video texture creation failed (%08X)",
+                        (unsigned)hr);
+          video_bg::report_backend_failure(video_slot, message);
+          e = TextureEntry{};
+        }
+      }
+      if (e.resource && !e.width) {
         e.width = frame->width; e.height = frame->height; e.levels = 1;
         video_serial_[video_slot][slot_] = 0;
         created = true;
       }
-      if (video_serial_[video_slot][slot_] != frame->serial) {
+      bool upload_ok = e.resource != nullptr;
+      if (upload_ok && video_serial_[video_slot][slot_] != frame->serial) {
         if (!created) {
           D3D12_RESOURCE_BARRIER to_copy{};
           to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -1151,28 +1161,45 @@ ID3D12Resource* D3D12Backend::get_texture(const TextureRef& t, uint32_t* w, uint
         }
         const uint32_t pitch = (frame->width * 4 + 255) & ~255u;
         uint8_t* cpu = nullptr; D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;
-        upload_ring_.alloc((size_t)pitch * frame->height, 512, &cpu, &gpu);
-        for (uint32_t y = 0; y < frame->height; ++y)
-          std::memcpy(cpu + (size_t)y * pitch,
-                      frame->bgra.data() + (size_t)y * frame->width * 4,
-                      (size_t)frame->width * 4);
-        D3D12_TEXTURE_COPY_LOCATION dst{e.resource.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
-        D3D12_TEXTURE_COPY_LOCATION src{upload_ring_.resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
-        src.PlacedFootprint.Offset = gpu - upload_ring_.resource()->GetGPUVirtualAddress();
-        src.PlacedFootprint.Footprint = {DXGI_FORMAT_B8G8R8A8_UNORM, frame->width,
-                                        frame->height, 1, pitch};
-        list_->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
-        D3D12_RESOURCE_BARRIER to_sample{};
-        to_sample.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        to_sample.Transition = {e.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-                                D3D12_RESOURCE_STATE_COPY_DEST,
-                                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
-        list_->ResourceBarrier(1, &to_sample);
-        video_serial_[video_slot][slot_] = frame->serial;
+        if (!upload_ring_.alloc((size_t)pitch * frame->height, 512, &cpu, &gpu)) {
+          video_bg::report_backend_failure(video_slot, "D3D12 video upload allocation failed");
+          if (created) {
+            e = TextureEntry{};
+          } else {
+            D3D12_RESOURCE_BARRIER to_sample{};
+            to_sample.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_sample.Transition = {e.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                    D3D12_RESOURCE_STATE_COPY_DEST,
+                                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+            list_->ResourceBarrier(1, &to_sample);
+          }
+          upload_ok = false;
+        }
+        if (upload_ok) {
+          for (uint32_t y = 0; y < frame->height; ++y)
+            std::memcpy(cpu + (size_t)y * pitch,
+                        frame->bgra.data() + (size_t)y * frame->width * 4,
+                        (size_t)frame->width * 4);
+          D3D12_TEXTURE_COPY_LOCATION dst{e.resource.Get(), D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX};
+          D3D12_TEXTURE_COPY_LOCATION src{upload_ring_.resource(), D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT};
+          src.PlacedFootprint.Offset = gpu - upload_ring_.resource()->GetGPUVirtualAddress();
+          src.PlacedFootprint.Footprint = {DXGI_FORMAT_B8G8R8A8_UNORM, frame->width,
+                                          frame->height, 1, pitch};
+          list_->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+          D3D12_RESOURCE_BARRIER to_sample{};
+          to_sample.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+          to_sample.Transition = {e.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
+                                  D3D12_RESOURCE_STATE_COPY_DEST,
+                                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+          list_->ResourceBarrier(1, &to_sample);
+          video_serial_[video_slot][slot_] = frame->serial;
+        }
       }
-      e.last_used = frame_counter_;
-      *w = e.width; *h = e.height;
-      return e.resource.Get();
+      if (upload_ok) {
+        e.last_used = frame_counter_;
+        *w = e.width; *h = e.height;
+        return e.resource.Get();
+      }
     }
   }
   const uint8_t* src = t.data->image.data();
@@ -1290,7 +1317,8 @@ D3D12_GPU_DESCRIPTOR_HANDLE D3D12Backend::bind_textures(const DrawCall& dc) {
     for (int i = 0; i < 8; ++i) {
       D3D12_CPU_DESCRIPTOR_HANDLE h = cpu; h.ptr += (base + i) * srv_size_;
       D3D12_SHADER_RESOURCE_VIEW_DESC sd{};
-      sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM; sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+      sd.Format = resources[i] ? resources[i]->GetDesc().Format : DXGI_FORMAT_R8G8B8A8_UNORM;
+      sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
       sd.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
       sd.Texture2D.MipLevels = resources[i] ? -1 : 1;
       device_->CreateShaderResourceView(resources[i], &sd, h);

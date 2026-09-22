@@ -1006,21 +1006,25 @@ TextureEntry* D3D11Backend::get_texture(const TextureRef& t) {
         td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         if (FAILED(device_->CreateTexture2D(&td, nullptr, &e.resource)) ||
             FAILED(device_->CreateShaderResourceView(e.resource.Get(), nullptr, &e.srv))) {
-          host::log("video backgrounds: d3d11 texture creation failed (%ux%u)",
-                    frame->width, frame->height);
+          char message[96];
+          std::snprintf(message, sizeof message, "D3D11 video texture creation failed (%ux%u)",
+                        frame->width, frame->height);
+          video_bg::report_backend_failure(video_slot, message);
           e = TextureEntry{};
-          return nullptr;
+        } else {
+          e.width = frame->width; e.height = frame->height; e.levels = 1;
+          video_serial_[video_slot] = 0;
         }
-        e.width = frame->width; e.height = frame->height; e.levels = 1;
-        video_serial_[video_slot] = 0;
       }
-      if (video_serial_[video_slot] != frame->serial) {
+      if (e.resource && video_serial_[video_slot] != frame->serial) {
         context_->UpdateSubresource(e.resource.Get(), 0, nullptr, frame->bgra.data(),
                                     frame->width * 4, 0);
         video_serial_[video_slot] = frame->serial;
       }
-      e.last_used = frame_counter_;
-      return &e;
+      if (e.resource) {
+        e.last_used = frame_counter_;
+        return &e;
+      }
     }
   }
   const uint32_t meta[] = {t.width, t.height, t.format, t.mip_levels, t.tlut_format};
