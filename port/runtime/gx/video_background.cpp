@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_background.h"
 #include "video_background_learning.h"
+#include "video_background_style.h"
 #include "../host/host.h"
 #include <windows.h>
 #include <mfapi.h>
@@ -49,10 +50,11 @@ class Decoder {
  public:
   ~Decoder() { stop(); }
 
-  void start(const std::filesystem::path& path) {
+  void start(const std::filesystem::path& path, bool sss_matte) {
     if (path_ == path && worker_.joinable()) return;
     stop();
     path_ = path;
+    sss_matte_ = sss_matte;
     stopping_ = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -149,6 +151,14 @@ class Decoder {
     LONG stride = (LONG)width * 4;
     actual->GetUINT32(MF_MT_DEFAULT_STRIDE, reinterpret_cast<UINT32*>(&stride));
 
+    std::vector<uint8_t> sss_mask;
+    if (sss_matte_) {
+      sss_mask.resize((size_t)width * height);
+      for (UINT32 y = 0; y < height; ++y)
+        for (UINT32 x = 0; x < width; ++x)
+          sss_mask[(size_t)y * width + x] = style::sss_matte_alpha(x, y, width, height);
+    }
+
     uint64_t serial = 0;
     while (!stopping_) {
       if (!wait_active()) break;
@@ -197,6 +207,20 @@ class Decoder {
           // RGB32's unused high byte is not guaranteed to be opaque. The guest background may
           // sample texture alpha in its TEV stages, so normalize it instead of inheriting zeros.
           for (size_t p = 3; p < next->bgra.size(); p += 4) next->bgra[p] = 255;
+          if (sss_matte_) {
+            // Match the supplied Sky SSS reference: retain motion at the perimeter while a dark
+            // slate panel protects the stage icons and labels. This runs on the decoder thread;
+            // the render thread still only uploads the latest completed frame.
+            constexpr uint8_t matte_bgr[3] = {76, 55, 45};
+            for (size_t pixel = 0; pixel < sss_mask.size(); ++pixel) {
+              const unsigned a = sss_mask[pixel];
+              if (!a) continue;
+              uint8_t* bgra = next->bgra.data() + pixel * 4;
+              for (int channel = 0; channel < 3; ++channel)
+                bgra[channel] = (uint8_t)((bgra[channel] * (255 - a) +
+                                           matte_bgr[channel] * a + 127) / 255);
+            }
+          }
         } else {
           next.reset();
           set_error("decoded frame has an invalid stride");
@@ -219,6 +243,7 @@ class Decoder {
   }
 
   std::filesystem::path path_;
+  bool sss_matte_ = false;
   mutable std::mutex mutex_;
   std::mutex wait_mutex_;
   std::condition_variable cv_;
@@ -289,7 +314,7 @@ class Manager {
       const bool exists = enabled_ && media_foundation_ && std::filesystem::is_regular_file(s.video_path);
       has_video_[i] = exists;
       if (exists && !started_[i]) {
-        s.decoder.start(s.video_path);
+        s.decoder.start(s.video_path, i == 1);
         started_[i] = true;
         host::log("video backgrounds: found %ls.mp4", s.stem);
       }

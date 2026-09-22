@@ -1,4 +1,5 @@
 #include "video_background_learning.h"
+#include "video_background_style.h"
 #include <cstdio>
 
 static int failures;
@@ -36,6 +37,13 @@ int main() {
   check(confident(320, 120, 45, 90, 45), "persistent short texture is eligible");
   check(!confident(640, 480, 4, 90, 40), "brief large splash is not eligible");
   check(candidate_score(16, 16, 90, 90) == 0, "tiny icons are ignored");
+
+  check(gx::video_bg::style::sss_matte_alpha(0, 0, 1920, 1080) == 0,
+        "SSS video remains unobscured at the outer sky perimeter");
+  check(gx::video_bg::style::sss_matte_alpha(960, 540, 1920, 1080) == 160,
+        "SSS video receives the full readability matte behind the stage grid");
+  const uint8_t feather = gx::video_bg::style::sss_matte_alpha(1920 * 12 / 100, 540, 1920, 1080);
+  check(feather > 0 && feather < 160, "SSS matte feathers into the video perimeter");
 
   if (!failures) std::puts("video background learning tests passed");
   return failures ? 1 : 0;
