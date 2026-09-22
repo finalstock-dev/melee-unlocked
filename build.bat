@@ -31,16 +31,16 @@ cmake --build build-review --config Release --target melee_port --parallel || go
 echo.
 echo Done: build-review\port\Release\melee_port.exe
 echo Play with:  play.bat "%ISO%"
-if not "%~1"=="" pause
+if not defined MELEE_BUILD_NO_PAUSE if not "%~1"=="" pause
 exit /b 0
 
 :tools
 echo Could not install the tools automatically. Install Python 3, CMake and Visual Studio 2022
 echo Build Tools ^(C++ desktop workload^), then run this file again.
-pause
+if not defined MELEE_BUILD_NO_PAUSE pause
 exit /b 1
 
 :fail
 echo Build failed; see the messages above.
-pause
+if not defined MELEE_BUILD_NO_PAUSE pause
 exit /b 1

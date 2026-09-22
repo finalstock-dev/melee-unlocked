@@ -40,4 +40,20 @@ int local_player_index();
 // waiting for an opponent) and not running a match.
 bool in_online_menus();
 
+// Native practice uses the same Slippi matchmaking implementation as the game's online menus.
+// These calls are simulation-thread only. native_poll_match is deliberately side-effecting and
+// must be advanced no more than once per intended 60 Hz tick, just like CMD_GET_MATCH_STATE.
+struct NativeMatchPoll {
+  int process_state = 0;
+  bool connection_success = false;
+  bool local_ready = false;
+  bool remote_ready = false;
+  std::string error;
+  std::string opponent;
+};
+bool native_start_match(int mode, const std::string& connect_code, uint8_t character,
+                        uint8_t color, std::string* error);
+NativeMatchPoll native_poll_match();
+void native_cleanup_match();
+
 }  // namespace slippi::online

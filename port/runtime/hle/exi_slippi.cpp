@@ -3,6 +3,7 @@
 #include "jukebox.h"
 #include "slippi_playback.h"
 #include "slippi_online.h"
+#include "native_practice.h"
 #include "gecko_data.h"
 #include "host.h"
 #include "vcdiff.h"
@@ -301,8 +302,9 @@ void poll_options() {
     last_mode = now;
     host::log("game mode: 0x%02X", now);
   }
+  native_practice::tick();
 }
-void shutdown() { if (g_file) { uint8_t empty[1]; write_to_file(empty, 0, "close"); } online::shutdown(); }
+void shutdown() { if (g_file) { uint8_t empty[1]; write_to_file(empty, 0, "close"); } native_practice::shutdown(); online::shutdown(); }
 uint64_t replays_written() { return g_replays_written; }
 uint32_t gct_load_address() { return g_gct_address; }
 uint64_t commands_seen() { return g_commands; }

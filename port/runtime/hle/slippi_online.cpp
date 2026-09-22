@@ -903,6 +903,61 @@ bool in_online_menus() {
   return g_last_match_state_retrace && now - g_last_match_state_retrace < 10;
 }
 
+bool native_start_match(int mode, const std::string& connect_code, uint8_t character,
+                        uint8_t color, std::string* error) {
+  if (!g_user) init();
+  if (session_mode() >= 0) {
+    if (error) *error = "An online session is already active";
+    return false;
+  }
+  if (mode < (int)Matchmaking::RANKED || mode > (int)Matchmaking::PARTY) {
+    if (error) *error = "Unsupported matchmaking mode";
+    return false;
+  }
+
+  // Same payloads the guest sends from the stock Slippi online menus. Native practice chooses a
+  // random legal stage and carries the practice character/costume into the normal online flow.
+  uint8_t selections[9] = {0, character, color, 1, 0, 0, 3, (uint8_t)mode, 0};
+  set_match_selections(selections);
+  uint8_t find[19] = {};
+  find[0] = (uint8_t)mode;
+  const std::string sjis = utf8_to_shiftjis(connect_code);
+  std::memcpy(find + 1, sjis.data(), std::min<size_t>(18, sjis.size()));
+  start_find_match(find);
+  if (!g_forced_error.empty()) {
+    if (error) *error = g_forced_error;
+    return false;
+  }
+  if (error) error->clear();
+  return g_matchmaking && g_matchmaking->IsSearching();
+}
+
+NativeMatchPoll native_poll_match() {
+  NativeMatchPoll out;
+  if (!g_user) init();
+  std::vector<uint8_t> response;
+  prepare_online_match_state(response);  // owns lifecycle work; exactly one coordinator call/tick
+  if (!response.empty()) out.process_state = response[0];
+  out.connection_success = out.process_state == (int)Matchmaking::CONNECTION_SUCCESS;
+  if (response.size() >= 3) {
+    out.local_ready = response[1] != 0;
+    out.remote_ready = response[2] != 0;
+  }
+  if (!g_forced_error.empty()) out.error = g_forced_error;
+  else if (out.process_state == (int)Matchmaking::ERROR_ENCOUNTERED && g_matchmaking)
+    out.error = g_matchmaking->GetErrorMessage();
+  if (g_matchmaking) {
+    for (int i = 0; i < 4 && out.opponent.empty(); ++i)
+      if (i != (int)g_local_player_index) out.opponent = g_matchmaking->GetPlayerName((uint8_t)i);
+  }
+  return out;
+}
+
+void native_cleanup_match() {
+  if (!g_user) return;
+  cleanup_connection();
+}
+
 static bool file_exists(const std::string& p) { FILE* f = std::fopen(p.c_str(), "rb"); if (!f) return false; std::fclose(f); return true; }
 
 void init() {

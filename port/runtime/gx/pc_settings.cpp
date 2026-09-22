@@ -19,6 +19,7 @@
 #include "user_gecko.h"
 #include "gecko_data.h"
 #include "slippi_online.h"
+#include "native_practice.h"
 #include "hid_pad.h"
 #include "updater.h"
 #include "discord_presence.h"
@@ -1403,6 +1404,7 @@ void load_pc_settings(D3D12Options& options, int& volume) {
       // presented frame and nobody should switch it on by browsing.
       else if (key == "flickerscan") options.flicker_scan = value == "1";
       else if (key == "settingshint") options.settings_hint = value != "0";
+      else if (key == "matchmakinghint") options.matchmaking_hint = value != "0";
       else if (key == "effects") { int n = std::atoi(value.c_str()); if (n >= 0 && n <= 2) options.effects_level = n; }
       else if (key == "inputoverlay") options.input_overlay = value == "1";
       // Settings saved before the overlay could show several ports name a single port number.
@@ -1650,36 +1652,239 @@ bool PcSettingsUI::begin(D3D12Options& options) {
   return settings_frame(impl_->state, options);
 }
 
+static const char* matchmaking_state_text(int state) {
+  switch (state) {
+    case 0: return "Starting...";
+    case 1: return "Initializing...";
+    case 2: return "Searching...";
+    case 3: return "Opponent found; connecting...";
+    case 4: return "Connected";
+    case 5: return "Matchmaking error";
+    default: return "Searching...";
+  }
+}
+
+static void draw_native_practice(SettingsState& state, D3D12Options& options,
+                                 const slippi::native_practice::Snapshot& practice,
+                                 const host::PadState& pad, bool have_pad) {
+  using slippi::native_practice::Phase;
+  const ImVec2 screen = ImGui::GetIO().DisplaySize;
+
+  if (practice.phase == Phase::Handoff) {
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::Begin("##native_match_found", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted("Match found");
+    ImGui::TextDisabled("Connecting...");
+    ImGui::End();
+    return;
+  }
+
+  if (slippi::native_practice::phase_shows_return_overlay(practice.phase,
+                                                          practice.in_practice)) {
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.88f);
+    ImGui::Begin("##native_practice_return", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs |
+                 ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted("Returning to practice...");
+    ImGui::End();
+    return;
+  }
+
+  if (practice.phase == Phase::Failure) {
+    const bool a_down = have_pad && (pad.button & 0x100) != 0;
+    if (state.practice_pad_armed && a_down && !state.practice_a_was_down) {
+      slippi::native_practice::submit_acknowledge_failure();
+      state.practice_pad_armed = false;
+      state.practice_release_capture = true;
+    }
+    state.practice_a_was_down = a_down;
+
+    ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    ImGui::Begin("##native_practice_failure", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextUnformatted("Disconnected " "\xE2\x80\x94" " Press A to continue");
+    if (!practice.detail.empty()) ImGui::TextDisabled("%s", practice.detail.c_str());
+    if (!state.practice_pad_armed) ImGui::TextDisabled("Release the controller, then press A.");
+    ImGui::End();
+    return;
+  }
+
+  if (practice.phase == Phase::Searching && !state.practice_open) {
+    ImGui::SetNextWindowPos(ImVec2(screen.x - 12, screen.y - 12), ImGuiCond_Always, ImVec2(1, 1));
+    ImGui::SetNextWindowBgAlpha(0.72f);
+    ImGui::Begin("##native_search_status", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::Text("%s: %s", slippi::native_practice::match_mode_name(practice.mode),
+                matchmaking_state_text(practice.matchmaking_state));
+    const std::string elapsed = slippi::native_practice::format_search_duration(practice.search_ticks);
+    ImGui::TextDisabled("Searching %s", elapsed.c_str());
+    ImGui::TextDisabled("Tab: search controls");
+    ImGui::End();
+  }
+
+  if (!state.practice_open) {
+    if (options.matchmaking_hint && practice.tab_available && practice.phase == Phase::Idle) {
+      ImGui::SetNextWindowPos(ImVec2(screen.x - 12, 52), ImGuiCond_Always, ImVec2(1, 0));
+      ImGui::SetNextWindowBgAlpha(ImGui::GetTime() < 20.0 ? 0.8f : 0.35f);
+      ImGui::Begin("##native_practice_hint", nullptr,
+                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                   ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings);
+      ImGui::TextUnformatted("Matchmaking: Tab");
+      ImGui::End();
+    }
+    return;
+  }
+
+  ImGui::SetNextWindowPos(ImVec2(screen.x * 0.5f, screen.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+  ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
+  if (!ImGui::Begin("Practice matchmaking", &state.practice_open,
+                    ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+    ImGui::End();
+    return;
+  }
+  ImGui::TextUnformatted("Tab or Esc: return to the game");
+  ImGui::Separator();
+
+  ImGui::BeginDisabled(!practice.can_start);
+  const bool start_ranked = ImGui::Button("Ranked", ImVec2(126, 32));
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::BeginDisabled(!practice.can_start);
+  const bool start_unranked = ImGui::Button("Unranked", ImVec2(126, 32));
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ImGui::Button("Direct", ImVec2(126, 32))) state.practice_focus_code = true;
+  ImGui::TextDisabled("Ranked and Unranked start immediately; Direct uses a code.");
+  ImGui::Separator();
+
+  if (start_ranked && practice.can_start) {
+    state.practice_error[0] = 0;
+    slippi::native_practice::submit_start_ranked();
+    state.practice_open = false;
+    state.practice_release_capture = true;
+    ImGui::End();
+    return;
+  }
+
+  if (start_unranked && practice.can_start) {
+    state.practice_error[0] = 0;
+    slippi::native_practice::submit_start_unranked();
+    state.practice_open = false;
+    state.practice_release_capture = true;
+    ImGui::End();
+    return;
+  }
+
+  if (practice.phase == Phase::Searching) {
+    ImGui::Text("Mode: %s", slippi::native_practice::match_mode_name(practice.mode));
+    if (!practice.connect_code.empty()) ImGui::Text("Code: %s", practice.connect_code.c_str());
+    ImGui::TextUnformatted(matchmaking_state_text(practice.matchmaking_state));
+    const std::string elapsed = slippi::native_practice::format_search_duration(practice.search_ticks);
+    ImGui::Text("Search time: %s", elapsed.c_str());
+    if (!practice.opponent.empty()) ImGui::Text("Opponent: %s", practice.opponent.c_str());
+    ImGui::TextWrapped("Close this popup with Tab to keep practicing while the search continues.");
+    if (ImGui::Button("Cancel search", ImVec2(-1, 36))) {
+      slippi::native_practice::submit_cancel();
+      state.practice_open = false;
+      state.practice_release_capture = true;
+    }
+  } else {
+    ImGui::TextUnformatted("Connect code");
+    if (state.practice_focus_code) {
+      ImGui::SetKeyboardFocusHere();
+      state.practice_focus_code = false;
+    }
+    const bool enter = ImGui::InputText("##direct_code", state.practice_code,
+                                        sizeof state.practice_code,
+                                        ImGuiInputTextFlags_CharsUppercase |
+                                        ImGuiInputTextFlags_CharsNoBlank |
+                                        ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::TextDisabled("Type or paste a code such as NAME#123.");
+    ImGui::BeginDisabled(!practice.can_start);
+    const bool start = ImGui::Button("Search Direct", ImVec2(-1, 36)) || enter;
+    ImGui::EndDisabled();
+    if (start && practice.can_start) {
+      std::string code, error;
+      if (slippi::native_practice::normalize_direct_code(state.practice_code, &code, &error)) {
+        std::snprintf(state.practice_code, sizeof state.practice_code, "%s", code.c_str());
+        state.practice_error[0] = 0;
+        slippi::native_practice::submit_start_direct(code);
+        state.practice_open = false;
+        state.practice_release_capture = true;
+      } else {
+        std::snprintf(state.practice_error, sizeof state.practice_error, "%s", error.c_str());
+      }
+    }
+    if (state.practice_error[0])
+      ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.40f, 1.0f), "%s", state.practice_error);
+  }
+  ImGui::End();
+}
+
 bool settings_frame(SettingsState& state, D3D12Options& options) {
+  slippi::native_practice::Snapshot practice = slippi::native_practice::snapshot();
+  const bool practice_forced = practice.phase == slippi::native_practice::Phase::Handoff ||
+                               practice.phase == slippi::native_practice::Phase::Failure ||
+                               practice.phase == slippi::native_practice::Phase::ReturningToPractice;
+  const bool practice_force_capture =
+      slippi::native_practice::phase_forces_input_capture(practice.phase);
+  const bool practice_nav = state.practice_open || practice.phase == slippi::native_practice::Phase::Failure;
   // Dear ImGui's Win32 backend polls XInput itself whenever gamepad navigation is enabled, and maps
   // the Xbox X button to its "menu" key, which pops up ImGui's window switcher for as long as the
   // button is held. Players pressing X mid-match got a little window they could not get rid of.
-  // Controller navigation is only wanted while this panel is open, so it is switched off otherwise,
-  // before the backend's NewFrame does that polling.
+  // Native practice must follow the controller port selected in Training. Disable the backend's
+  // hard-wired XInput-pad-1 poll and feed the already-routed GameCube-format port below instead.
   {
     auto& io = ImGui::GetIO();
-    if (state.open) {
-      io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    } else {
-      io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
-      io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
-    }
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+    io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
   }
   ImGui_ImplWin32_NewFrame();
-  // The GameCube pad drives the panel only while it is open. Fed in while closed, a whole match of
-  // presses queued up in ImGui and played back the moment the panel opened: the cursor ran through
-  // the settings on its own, A presses switched them, and one of those took the game down. Opening
-  // clears whatever is queued, and the pad counts again only once it has been let go.
-  static bool was_open = false, pad_armed = false;
-  host::PadState pad{};
-  const bool have_pad = host::window_ui_gamecube_pad(pad);
-  if (state.open && !was_open) { ImGui::GetIO().ClearEventsQueue(); ImGui::GetIO().ClearInputKeys(); pad_armed = false; }
-  was_open = state.open;
-  if (!state.open) pad_armed = false;
-  else if (!pad_armed && have_pad)
-    pad_armed = pad.button == 0 && std::abs(pad.stick_x) < 30 && std::abs(pad.stick_y) < 30;
-  if (have_pad && state.open && pad_armed) {
-    auto& io = ImGui::GetIO(); io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+  // UI navigation is armed only after the selected pad has returned to neutral. A held A that
+  // opened no UI cannot click Start, Cancel, or acknowledge a later disconnect.
+  host::PadState pads[4]{};
+  const bool have_any_pad = host::window_ui_pads(pads);
+  if (!have_any_pad) for (host::PadState& p : pads) p.err = -1;
+  if (state.practice_release_capture) {
+    bool any_connected = false, all_neutral = true;
+    for (const host::PadState& p : pads) {
+      if (p.err != 0) continue;
+      any_connected = true;
+      if (p.button || std::abs(p.stick_x) >= 30 || std::abs(p.stick_y) >= 30 ||
+          std::abs(p.sub_x) >= 30 || std::abs(p.sub_y) >= 30 || p.trig_l > 20 || p.trig_r > 20)
+        all_neutral = false;
+    }
+    if (!any_connected || all_neutral) state.practice_release_capture = false;
+  }
+  int nav_port = std::clamp(practice.controller_port, 0, 3);
+  if (pads[nav_port].err != 0)
+    for (int i = 0; i < 4; ++i) if (pads[i].err == 0) { nav_port = i; break; }
+  const host::PadState& pad = pads[nav_port];
+  const bool have_pad = pad.err == 0;
+  const bool nav_active = state.open || practice_nav;
+  if (nav_active && (!state.practice_nav_active || practice.generation != state.practice_generation)) {
+    ImGui::GetIO().ClearEventsQueue();
+    ImGui::GetIO().ClearInputKeys();
+    state.practice_pad_armed = false;
+    state.practice_a_was_down = (pad.button & 0x100) != 0;
+  }
+  state.practice_nav_active = nav_active;
+  state.practice_generation = practice.generation;
+  if (!nav_active) state.practice_pad_armed = false;
+  else if (!state.practice_pad_armed && have_pad)
+    state.practice_pad_armed = pad.button == 0 && std::abs(pad.stick_x) < 30 && std::abs(pad.stick_y) < 30;
+  if (have_pad && nav_active && state.practice_pad_armed) {
+    auto& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.AddKeyEvent(ImGuiKey_GamepadStart, (pad.button & 0x1000) != 0);
     io.AddKeyEvent(ImGuiKey_GamepadBack, (pad.button & 0x10) != 0);
     io.AddKeyEvent(ImGuiKey_GamepadFaceDown, (pad.button & 0x100) != 0);
@@ -1690,7 +1895,17 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
     io.AddKeyEvent(ImGuiKey_GamepadDpadRight, (pad.button & 2) || pad.stick_x > 40);
   }
   ImGui::NewFrame();
-  if (host::window_take_settings_toggle()) state.open = !state.open;   // see window.cpp WM_KEYDOWN
+  if (host::window_take_settings_toggle()) {
+    state.open = !state.open;
+    if (state.open) state.practice_open = false;
+  }
+  const bool tab_pressed = host::window_take_practice_toggle();
+  if (tab_pressed && !state.open && !state.menu_open && !state.fill_window && practice.tab_available) {
+    const bool was_open = state.practice_open;
+    state.practice_open = !state.practice_open;
+    if (state.practice_open) state.practice_focus_code = practice.phase == slippi::native_practice::Phase::Idle;
+    else if (was_open) state.practice_release_capture = true;
+  }
   // F2: write the next ~90 presented frames into capture\. For defects that only show in a real
   // session, where scripted runs reproduce nothing: press it while the problem is happening and
   // the frames themselves can be read afterwards.
@@ -1700,10 +1915,17 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   // does nothing here then (closing the panel on the same key left the capture running).
   if (host::window_take_escape() && state.rebind_action < 0) {
     if (state.open) state.open = false;
+    else if (state.practice_open) { state.practice_open = false; state.practice_release_capture = true; }
     else if (!state.fill_window) { state.menu_open = !state.menu_open; state.menu_quit = false; }
   }
-  if (state.open) state.menu_open = false;   // F1 with the menu up goes straight to the panel
-  host::window_input_capture(state.open || state.menu_open);
+  if (state.open) { state.menu_open = false; state.practice_open = false; }
+  if (state.menu_open) state.practice_open = false;
+  if (practice_forced || practice.phase == slippi::native_practice::Phase::OnlineFlow ||
+      practice.phase == slippi::native_practice::Phase::InMatch)
+    state.practice_open = false;
+  const bool practice_capture = state.practice_open || practice_force_capture ||
+                                state.practice_release_capture;
+  host::window_input_capture(state.open || state.menu_open || practice_capture);
   state.intervals[state.cursor++ % state.intervals.size()] = ImGui::GetIO().DeltaTime*1000.f;
   if (streamline::reflex_available())
     state.latencies[state.latency_cursor++ % state.latencies.size()] = streamline::reflex_latency_ms();
@@ -2411,7 +2633,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
       ImGui::TextDisabled("Off. Nothing is sent to Discord. Needs an Application ID from discord.com/developers/applications.");
     }
 
-    ImGui::Checkbox("Open this panel at startup", &options.settings_open);
+    changed |= ImGui::Checkbox("Open this panel at startup", &options.settings_open);
         ImGui::EndTabItem();
       }
       if (ImGui::BeginTabItem("Controls", nullptr, tab_flags("Controls"))) {
@@ -2848,6 +3070,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
       if (ImGui::BeginTabItem("Overlays", nullptr, tab_flags("Overlays"))) {
     changed |= ImGui::Checkbox("Show the \"Settings: F1\" reminder", &options.settings_hint);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("F1 still opens this panel with it off.");
+    changed |= ImGui::Checkbox("Show the \"Matchmaking: Tab\" reminder", &options.matchmaking_hint);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tab still opens matchmaking with it off.");
     ImGui::Checkbox("Performance overlay", &options.performance_overlay);
     changed |= ImGui::Checkbox("FPS counter (top left)", &options.show_fps);
     // VRAM has its own line in the Video tab, right by the settings that move it; no overlay needed.
@@ -2994,6 +3218,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
            << "\nstartup " << (options.settings_open ? 1 : 0)
            // Read since it was added and never written, so hiding the reminder lasted one session.
            << "\nsettingshint " << (options.settings_hint ? 1 : 0)
+           << "\nmatchmakinghint " << (options.matchmaking_hint ? 1 : 0)
            << "\ninputoverlay " << options.input_overlay << "\ninputoverlayports " << options.input_overlay_ports
            << "\ninputoverlayhideborder " << options.input_overlay_hide_border
            << "\ninputoverlayvalues " << options.input_overlay_values
@@ -3155,6 +3380,10 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
     }
     ImGui::End();
   }
+  const bool practice_was_open = state.practice_open;
+  if (!state.fill_window && !state.open && !state.menu_open)
+    draw_native_practice(state, options, practice, pad, have_pad);
+  if (practice_was_open && !state.practice_open) state.practice_release_capture = true;
   if (!state.open) {
     // Keep the closed state passive: opening is intentionally F1-only so controller
     // navigation cannot activate a settings button by accident.
@@ -3271,7 +3500,7 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
   }
   // Same rule as at the top of the frame. With only the in-game (Esc) menu open, this used to say
   // "not captured" while the top said "captured", so the pointer was shown and hidden every frame.
-  host::window_input_capture(state.open || state.menu_open);
+  host::window_input_capture(state.open || state.menu_open || practice_capture);
   ImGui::Render();
   return changed;
 }

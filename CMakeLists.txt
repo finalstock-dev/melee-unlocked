@@ -30,6 +30,12 @@ if(MSVC)
 endif()
 add_executable(native_asset_test tests/native_asset_test.cpp)
 add_executable(packed_animation_test tests/packed_animation_test.cpp)
+add_executable(native_practice_model_test
+  tests/native_practice_model_test.cpp
+  port/runtime/hle/native_practice_model.cpp)
+target_include_directories(native_practice_model_test PRIVATE port/runtime/hle)
+target_compile_features(native_practice_model_test PRIVATE cxx_std_17)
+add_test(NAME native_practice_model COMMAND native_practice_model_test)
 target_link_libraries(packed_animation_test PRIVATE native_animation)
 add_test(NAME packed_animation COMMAND packed_animation_test)
 target_link_libraries(native_asset_test PRIVATE native_animation)
