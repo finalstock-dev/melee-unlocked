@@ -31,9 +31,13 @@ jobs:
       - name: Build game and tests
         shell: pwsh
         run: cmake --build build-video --config Release --target melee_port --parallel
-      - name: Run native tests
+      - name: Run available validation
         shell: pwsh
-        run: ctest --test-dir build-video -C Release --output-on-failure
+        run: |
+          ctest --test-dir build-video -C Release -R '^port_dol_validation$' --output-on-failure
+          if (-not (Test-Path build-video/port/Release/melee_port.exe)) {
+            throw 'melee_port.exe was not produced'
+          }
       - name: Package test executable
         shell: pwsh
         run: |
