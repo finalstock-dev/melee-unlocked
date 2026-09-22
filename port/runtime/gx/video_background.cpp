@@ -381,7 +381,7 @@ class Manager {
 
   std::shared_ptr<const Frame> fullscreen(int* out_slot) {
     std::lock_guard<std::mutex> lock(state_mutex_);
-    if (!wants_names_locked() || active_slot_ != 0) return {};
+    if (!wants_names_locked() || active_slot_ < 0 || active_slot_ > 1) return {};
     Slot& s = slots_[active_slot_];
     if (!s.backend_error.empty()) return {};
     std::shared_ptr<const Frame> decoded = s.decoder.frame();

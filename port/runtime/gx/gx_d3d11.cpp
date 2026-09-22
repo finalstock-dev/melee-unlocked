@@ -380,6 +380,7 @@ class D3D11Backend : public Backend {
   TextureEntry video_textures_[2];
   uint64_t video_serial_[2]{};
   bool video_layer_logged_[2]{};
+  int draw_video_slot_ = -1;   // video target sampled by the draw currently being submitted
   std::unordered_map<uint32_t, TextureEntry> efb_copies_;
   // Diagnostic for the Fountain of Dreams reflection, which exists only as an EFB copy: the stage
   // renders a mirrored camera pass, copies it into an 80x60 image, and the water samples that
@@ -1059,7 +1060,10 @@ TextureEntry* D3D11Backend::get_texture(const TextureRef& t) {
     std::shared_ptr<const video_bg::Frame> frame =
         video_bg::lookup(video_name, t.width, t.height, &video_slot);
     if (frame && video_slot >= 0 && video_slot < 2 && !frame->bgra.empty()) {
-      if (TextureEntry* video = update_video_texture(frame, video_slot)) return video;
+      if (TextureEntry* video = update_video_texture(frame, video_slot)) {
+        draw_video_slot_ = video_slot;
+        return video;
+      }
     }
   }
   const uint32_t meta[] = {t.width, t.height, t.format, t.mip_levels, t.tlut_format};
@@ -1625,7 +1629,16 @@ void D3D11Backend::submit_frame(const Frame& frame, const DrawMatrices* override
             }
           }
         }
+        draw_video_slot_ = -1;
         if (plans_[cmd.index].valid) execute_draw(dc, plans_[cmd.index]);
+        if (fullscreen && screen && fullscreen_slot == 1 && draw_video_slot_ == 1 && !background_drawn) {
+          draw_video_background(fullscreen, fullscreen_slot, *screen);
+          background_drawn = true;
+          if (!video_layer_logged_[fullscreen_slot]) {
+            host::log("video backgrounds: SSS full-screen layer composited after learned backdrop draw (D3D11)");
+            video_layer_logged_[fullscreen_slot] = true;
+          }
+        }
       }
     } else {
       const EfbCopy& c = frame.copies[cmd.index];

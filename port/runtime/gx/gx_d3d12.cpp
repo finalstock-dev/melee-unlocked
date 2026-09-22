@@ -414,6 +414,7 @@ class D3D12Backend : public Backend {
   TextureEntry video_textures_[2][FRAME_SLOTS];
   uint64_t video_serial_[2][FRAME_SLOTS]{};
   bool video_layer_logged_[2]{};
+  int draw_video_slot_ = -1;   // video target sampled by the draw currently being submitted
   std::unordered_map<uint32_t, TextureEntry> efb_copies_;     // key: guest dest address
   std::unordered_map<SamplerSetKey, uint32_t, SamplerSetHash> sampler_sets_;  // -> heap slot base
   uint32_t sampler_slots_used_ = 0;
@@ -1256,6 +1257,7 @@ ID3D12Resource* D3D12Backend::get_texture(const TextureRef& t, uint32_t* w, uint
     if (frame && video_slot >= 0 && video_slot < 2 && !frame->bgra.empty()) {
       ID3D12Resource* video = update_video_texture(frame, video_slot);
       if (video) {
+        draw_video_slot_ = video_slot;
         *w = frame->width; *h = frame->height;
         return video;
       }
@@ -2187,7 +2189,20 @@ void D3D12Backend::submit_frame(const Frame& frame, const DrawMatrices* override
           }
         }
       }
+      draw_video_slot_ = -1;
       execute_draw(frame, dc, overrides ? overrides + cmd.index : nullptr);
+      // The SSS backdrop's guest material tints arbitrary footage blue/purple. Keep the learned
+      // texture draw as the precise layer marker, then cover only that completed backdrop with the
+      // untinted frame. Every stage icon, line and cursor is drawn afterwards, matching MnSlMap
+      // background mods while accepting any MP4.
+      if (fullscreen && screen && fullscreen_slot == 1 && draw_video_slot_ == 1 && !background_drawn) {
+        draw_video_background(fullscreen, fullscreen_slot, *screen);
+        background_drawn = true;
+        if (!video_layer_logged_[fullscreen_slot]) {
+          host::log("video backgrounds: SSS full-screen layer composited after learned backdrop draw (D3D12)");
+          video_layer_logged_[fullscreen_slot] = true;
+        }
+      }
     } else {
       const EfbCopy& c = frame.copies[cmd.index];
       if (c.to_xfb) { if (!skip_present_) { present_efb(c); presented = true; } }
