@@ -14,6 +14,14 @@ int main() {
   check(!gx::video_bg::learning::should_route_video(true, -1, true),
         "non-menu scenes retain vanilla");
   using namespace gx::video_bg::learning;
+  check(!uses_texture_target(0), "CSS never substitutes the learned player-card atlas");
+  check(uses_texture_target(1), "SSS keeps its genuine full-screen texture target");
+  check(should_insert_fullscreen_layer(0, 217, true),
+        "CSS inserts video between its hardcoded backdrop and textured foreground");
+  check(!should_insert_fullscreen_layer(0, 7, true),
+        "short setup runs do not trigger the CSS layer");
+  check(!should_insert_fullscreen_layer(1, 217, true),
+        "SSS continues through its texture-backed path");
   check(scene_slot(0x02, 0) == 0, "offline CSS scene");
   check(scene_slot(0x02, 1) == 1, "offline SSS scene");
   check(scene_slot(0x08, 0) == 0, "online CSS scene");

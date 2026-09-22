@@ -340,12 +340,31 @@ class Manager {
       return {};
     }
     if (base != s.target) return {};
+    // CSS's largest persistent texture is the four player-card atlas, not its background. The
+    // actual backdrop is a long run of untextured 3D draws, so substituting this atlas corrupts
+    // portraits and panels. CSS is composited by the backend as a full-screen layer instead.
+    if (!learning::uses_texture_target(active_slot_)) return {};
     if (out_slot) *out_slot = active_slot_;
     std::shared_ptr<const Frame> decoded = s.decoder.frame();
     if (decoded && !s.replacement_logged) {
       s.replacement_logged = true;
       host::log("video backgrounds: applying %ls video to %s (%ux%u video frame)",
                 s.stem, s.target.c_str(), decoded->width, decoded->height);
+    }
+    return decoded;
+  }
+
+  std::shared_ptr<const Frame> fullscreen(int* out_slot) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (!wants_names_locked() || active_slot_ != 0) return {};
+    Slot& s = slots_[active_slot_];
+    if (!s.backend_error.empty()) return {};
+    std::shared_ptr<const Frame> decoded = s.decoder.frame();
+    if (decoded && out_slot) *out_slot = active_slot_;
+    if (decoded && !s.replacement_logged) {
+      s.replacement_logged = true;
+      host::log("video backgrounds: decoded %ls full-screen frame (%ux%u)",
+                s.stem, decoded->width, decoded->height);
     }
     return decoded;
   }
@@ -383,6 +402,7 @@ class Manager {
     const std::string error = s.decoder.error();
     if (!error.empty()) return error;
     if (!s.backend_error.empty()) return s.backend_error + " — using vanilla";
+    if (i == 0 && s.decoder.frame()) return "Ready: full-screen video layer";
     if (!s.target.empty() && !s.target_confirmed)
       return active_slot_ == i ? "Checking saved target..." : "Visit this screen to verify saved target";
     if (s.learning_failed) {
@@ -580,6 +600,9 @@ bool wants_texture_names() { return manager().wants_names(); }
 std::shared_ptr<const Frame> lookup(const std::string& base, uint32_t width, uint32_t height,
                                     int* slot) {
   return manager().lookup_frame(base, width, height, slot);
+}
+std::shared_ptr<const Frame> fullscreen_frame(int* slot) {
+  return manager().fullscreen(slot);
 }
 void set_enabled(bool value) { manager().set_enabled(value); }
 bool enabled() { return manager().is_enabled(); }

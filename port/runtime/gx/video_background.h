@@ -37,6 +37,10 @@ bool wants_texture_names();
 std::shared_ptr<const Frame> lookup(const std::string& base, uint32_t width, uint32_t height,
                                     int* slot);
 
+// Returns the decoded frame for the active CSS screen without tying it to guest texture geometry.
+// The backend inserts it between Melee's hardcoded animated backdrop and textured foreground UI.
+std::shared_ptr<const Frame> fullscreen_frame(int* slot);
+
 // Test-build controls used by the native settings panel.
 void set_enabled(bool enabled);
 bool enabled();

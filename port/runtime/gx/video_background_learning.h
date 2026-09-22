@@ -17,6 +17,19 @@ constexpr bool should_route_video(bool enabled, int active_slot, bool has_video)
   return enabled && active_slot >= 0 && active_slot < 2 && has_video;
 }
 
+// CSS has no background texture: its first large persistent texture is a four-player UI atlas.
+// SSS does have a real full-screen background texture. Keeping this policy pure prevents a future
+// learner tweak from routing CSS video back into portraits and player panels.
+constexpr bool uses_texture_target(int active_slot) { return active_slot == 1; }
+
+// Melee draws the CSS's hardcoded 3D background first (217 untextured draws in the observed NTSC
+// 1.02 frame), then its textured foreground. Eight leading draws rejects tiny setup packets while
+// tolerating other CSS variants.
+constexpr bool should_insert_fullscreen_layer(int active_slot, unsigned leading_untextured,
+                                              bool next_draw_is_textured) {
+  return active_slot == 0 && leading_untextured >= 8 && next_draw_is_textured;
+}
+
 // Offline CSS/SSS uses minor 0/1. Slippi online uses 0/4; minor 1 is a transitional scene.
 constexpr int scene_slot(uint8_t major, uint8_t minor) {
   const bool match_mode = major == 0x02 || major == 0x03 || major == 0x04 ||

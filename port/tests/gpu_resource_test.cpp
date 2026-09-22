@@ -28,6 +28,7 @@ namespace gx::video_bg {
 void begin_frame(uint8_t, uint8_t) {}
 bool wants_texture_names() { return false; }
 std::shared_ptr<const Frame> lookup(const std::string&, uint32_t, uint32_t, int*) { return {}; }
+std::shared_ptr<const Frame> fullscreen_frame(int*) { return {}; }
 void set_enabled(bool) {}
 void report_backend_failure(int, const std::string&) {}
 }
