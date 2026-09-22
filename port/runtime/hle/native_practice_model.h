@@ -69,6 +69,9 @@ bool phase_owns_online_mode(Phase phase);
 // The popup is available throughout offline Melee. An active native search keeps it available so
 // the player can cancel, but replays and any pre-existing/playing online session own Tab instead.
 bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bool session_active);
+// Direct normally initializes these fields when Start is pressed on its CSS. Native matchmaking
+// bypasses that input path and must perform the initialization before the first CSS handoff.
+bool mode_needs_direct_first_match_reset(uint8_t online_mode);
 const char* phase_name(Phase phase);
 
 }  // namespace slippi::native_practice

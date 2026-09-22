@@ -54,6 +54,9 @@ int main() {
   CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, true, true));
   CHECK(!slippi::native_practice::matchmaking_tab_available(Phase::Idle, false, false, true));
   CHECK(slippi::native_practice::matchmaking_tab_available(Phase::Searching, false, false, true));
+  CHECK(!slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Ranked));
+  CHECK(!slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Unranked));
+  CHECK(slippi::native_practice::mode_needs_direct_first_match_reset((uint8_t)MatchMode::Direct));
 
   Lifecycle lifecycle;
   CHECK(lifecycle.begin_search());

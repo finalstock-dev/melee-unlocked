@@ -19,6 +19,10 @@ constexpr uint8_t kOnlineMajor = 8;
 constexpr uint8_t kTrainingMajor = 0x1C;
 // OFST_R13_ONLINE_MODE is -0x5060 from Melee's r13 base (0x804DB6A0).
 constexpr uint32_t kOnlineMode = 0x804D6640;
+// OFST_R13_ISWINNER (-0x5037) and OFST_R13_CHOSESTAGE (-0x5036). Normal Direct
+// initializes these when Start begins a search; the native search begins outside that CSS path.
+constexpr uint32_t kDirectIsWinner = 0x804D6669;
+constexpr uint32_t kDirectChoseStage = 0x804D666A;
 constexpr uint32_t kEventBackup = 0x8045A6C0 + 0x532;
 constexpr uint32_t kPlayerSlots = 0x80453080;
 constexpr uint32_t kPlayerStride = 0xE90;
@@ -135,6 +139,11 @@ void run_decision(const Decision& d) {
   if (d.cleanup_connection) slippi::online::native_cleanup_match();
   if (d.request_online_handoff) {
     write_event_backup();
+    if (mode_needs_direct_first_match_reset((uint8_t)g_match_mode)) {
+      host::wr8(kDirectIsWinner, 0xFF);  // ISWINNER_NULL: first match, not a loser rematch.
+      host::wr8(kDirectChoseStage, 0);
+      host::log("native practice: initialized Direct first-match CSS state");
+    }
     host::wr8(kOnlineMode, (uint8_t)g_match_mode);  // Consumed by the normal online scene.
     request_major(kOnlineMajor);
     host::log("native practice: %s match found; handing off to normal online flow",

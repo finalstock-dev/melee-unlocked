@@ -155,6 +155,10 @@ bool matchmaking_tab_available(Phase phase, bool playback, bool online_match, bo
   return phase == Phase::Idle && !session_active;
 }
 
+bool mode_needs_direct_first_match_reset(uint8_t online_mode) {
+  return online_mode == 2;
+}
+
 const char* phase_name(Phase phase) {
   switch (phase) {
     case Phase::Idle: return "Idle";

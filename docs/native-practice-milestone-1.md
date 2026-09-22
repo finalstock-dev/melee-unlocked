@@ -21,6 +21,9 @@ This milestone implements native Ranked and Unranked search plus the Direct-code
 - Unranked carries the Training character/costume into Slippi's existing fixed-rules matchmaking flow. Direct continues to use a typed or pasted connect code.
 - Closing the popup releases Training while search continues. A passive status indicator remains, shows elapsed search time from the 60 Hz coordinator clock, and Tab reopens Cancel.
 - Once transport connects, input is captured briefly, `Match found / Connecting...` appears, and the guest enters major scene 8 at the normal CSS for Ranked, Unranked, or Direct. Slippi owns selection polling and all later scene routing from that point. The overlay clears as soon as that scene is active, before the first online gameplay frame.
+- A native Direct handoff initializes Slippi's first-match winner/stage flags exactly as the normal
+  Direct CSS Start handler does, preventing stale rematch state from routing the first game through
+  stage select. Slippi remains responsible for real post-game stage selection and rematches.
 - The PC settings panel's Overlays tab can hide the small `Matchmaking: Tab` reminder without
   disabling Tab itself; the preference is saved with the other local settings.
 - Cancel invokes the existing Slippi connection cleanup. A 90-second timeout also cleans up.
