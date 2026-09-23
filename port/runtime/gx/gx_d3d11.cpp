@@ -1032,7 +1032,10 @@ void D3D11Backend::draw_video_background(
                 (LONG)((screen.src_y + screen.src_h) * scale_)};
   context_->RSSetViewports(1, &vp);
   context_->RSSetScissorRects(1, &sc);
-  const float rect[16] = {1, 1, 0, 0,
+  // Media Foundation's decoded rows are top-down while this EFB blit samples V in the opposite
+  // direction. Flip only the presentation layer; guest textures and ordinary EFB blits retain
+  // their existing orientation.
+  const float rect[16] = {1, -1, 0, 1,
                           1.0f / frame->width, 1.0f / frame->height, 0, 0,
                           1, 1, 0, 0,
                           1, 1, 1, 0};
