@@ -5,6 +5,7 @@
 #include "gx_d3d12.h"
 #include "gx_shader.h"
 #include "gx_texture.h"
+#include "video_background.h"
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
@@ -21,6 +22,16 @@ void window_set_fullscreen(bool) {}
 void window_set_title(const wchar_t*) {}
 }
 namespace slippi { void request_widescreen(bool) {} }
+// This renderer regression test deliberately links the production D3D12 backend without Media
+// Foundation. Keep its video-background hooks inert so it exercises descriptor/upload behavior.
+namespace gx::video_bg {
+void begin_frame(uint8_t, uint8_t) {}
+bool wants_texture_names() { return false; }
+std::shared_ptr<const Frame> lookup(const std::string&, uint32_t, uint32_t, int*) { return {}; }
+std::shared_ptr<const Frame> fullscreen_frame(int*) { return {}; }
+void set_enabled(bool) {}
+void report_backend_failure(int, const std::string&) {}
+}
 static void check(bool b, const char* why) { if(!b) throw std::runtime_error(why); }
 static void f32(uint32_t& out, float f) { memcpy(&out,&f,4); }
 static gx::TextureRef texture(uint32_t addr, uint8_t r, uint8_t b) {

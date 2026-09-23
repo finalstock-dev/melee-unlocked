@@ -1,0 +1,34 @@
+# Hidden diagnostic: boot to VS character select, wait for CSS learning, select two characters,
+# then remain on stage select long enough for the SSS learner to decide or time out.
+300 B
+310
+380 B
+390
+460 sy=-127
+466
+500 A
+510
+580 A
+590
+700 p=2
+# The slowest observed D3D12 boot reaches CSS around frame 977 on the reference NTSC 1.02 ISO.
+# Delaying these inputs avoids racing scene initialization and leaves multiple learning checkpoints.
+1200 sx=61 sy=127
+1200 p=2 sy=127
+1217
+1217 p=2
+1240 A
+1240 p=2 A
+1250
+1250 p=2
+1300 START
+1310
+# Retry only after a full SSS learning window. If the first Start succeeded, this is late enough
+# that SSS has already selected or timed out; otherwise it gives a slow CSS one more deterministic
+# selection attempt.
+1620 A
+1620 p=2 A
+1630
+1630 p=2
+1740 START
+1750

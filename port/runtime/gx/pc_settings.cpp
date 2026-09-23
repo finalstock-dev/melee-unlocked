@@ -6,6 +6,7 @@
 #endif
 #include <unordered_map>
 #include "texture_pack.h"
+#include "video_background.h"
 #include <atomic>
 #include <cstdarg>
 #include "pc_settings_shared.h"
@@ -1367,6 +1368,7 @@ void load_pc_settings(D3D12Options& options, int& volume) {
       else if (key == "customtextures") options.custom_textures = value == "1";
       else if (key == "dumptextures") options.dump_textures = value == "1";
       else if (key == "prefetchtextures") options.prefetch_textures = value != "0";
+      else if (key == "videobackgrounds") options.video_backgrounds = value != "0";
       // One line per pack the player switched off; anything not listed is on, so a pack installed
       // later starts enabled rather than silently doing nothing.
       else if (key == "texpackoff") {
@@ -2259,6 +2261,53 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
                           "filenames a replacement has to use. Only useful if you are making a pack.");
     }
 
+    // ---- Looping menu backgrounds ----
+    // Fixed filenames make the first test hard to misconfigure: replace css.mp4 or sss.mp4 in
+    // place, and one checkbox restores the unmodified game backdrop.
+    ImGui::Separator();
+    ImGui::TextUnformatted("Animated menu backgrounds");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("+ Open folder")) video_bg::open_folder();
+    bool video_on = options.video_backgrounds;
+    if (ImGui::Checkbox("Use looping MP4 backgrounds", &video_on)) {
+      options.video_backgrounds = video_on;
+      video_bg::set_enabled(video_on);
+      changed = true;
+    }
+    ImGui::TextWrapped("Drop css.mp4 and/or sss.mp4 into VideoBackgrounds. Audio is ignored. "
+                       "The first visit learns the vanilla backdrop without changing the ISO.");
+    const std::string css_status = video_bg::status(0);
+    const std::string sss_status = video_bg::status(1);
+    auto target_picker = [](int slot, const char* label) {
+      const auto observed = video_bg::observed_textures(slot);
+      if (observed.empty()) return;
+      const std::string current = video_bg::target(slot);
+      const std::string preview = current.empty() ? "Choose observed texture..." : current;
+      ImGui::PushID(slot == 0 ? "css-video-target" : "sss-video-target");
+      ImGui::SetNextItemWidth(-1.0f);
+      if (ImGui::BeginCombo(label, preview.c_str())) {
+        for (const auto& texture : observed) {
+          const std::string item = texture.name + " — " + std::to_string(texture.width) + "x" +
+              std::to_string(texture.height) + ", " +
+              std::to_string(texture.distinct_frames) + " frames / " +
+              std::to_string(texture.observations) + " observations";
+          if (ImGui::Selectable(item.c_str(), texture.name == current))
+            video_bg::choose_target(slot, texture.name);
+          if (texture.name == current) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::PopID();
+    };
+    ImGui::Text("Character select: %s", css_status.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Relearn CSS")) video_bg::relearn(0);
+    target_picker(0, "CSS texture target");
+    ImGui::Text("Stage select: %s", sss_status.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Relearn SSS")) video_bg::relearn(1);
+    target_picker(1, "SSS texture target");
+
     // ---- Low spec ----
     // One switch for every setting above that costs frames. Turning it on remembers what the player
     // had; turning it off puts exactly that back, not a hardcoded default. Both halves are saved, so
@@ -3033,7 +3082,8 @@ bool settings_frame(SettingsState& state, D3D12Options& options) {
       // set it up correctly was told their packs were off. Same omission that hid texpackoff.
       file << "\ncustomtextures " << (options.custom_textures ? 1 : 0)
            << "\ndumptextures " << (options.dump_textures ? 1 : 0)
-           << "\nprefetchtextures " << (options.prefetch_textures ? 1 : 0);
+           << "\nprefetchtextures " << (options.prefetch_textures ? 1 : 0)
+           << "\nvideobackgrounds " << (options.video_backgrounds ? 1 : 0);
       file << texpack_disabled_lines();
       // The player's Gecko codes switched on, by name (names can hold spaces; read to end of line).
       if (g_gecko_chosen) {

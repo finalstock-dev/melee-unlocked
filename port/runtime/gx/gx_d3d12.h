@@ -118,6 +118,9 @@ struct D3D12Options {
   // players may differ. dump_textures writes what the game drew, with the names a pack must use.
   bool custom_textures = false;
   bool dump_textures = false;
+  // Looping host-decoded MP4s on the CSS and stage-select backdrop textures. The game still draws
+  // the menus and owns their timing; only the pixels sampled by the learned backdrop are replaced.
+  bool video_backgrounds = true;
   // Decode every replacement when the game starts rather than the first time each texture appears,
   // as Dolphin's "Prefetch Custom Textures" does. A large pack costs about half a minute once here
   // instead of a stutter each time a new texture comes on screen.
